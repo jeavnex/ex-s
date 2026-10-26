@@ -108,7 +108,6 @@ class MainActivity : Activity(), SafeWebViewClient.Listener {
         webView.settings.apply {
             javaScriptEnabled = true
             domStorageEnabled = true
-            databaseEnabled = true
             allowFileAccess = false
             allowContentAccess = false
             setSupportMultipleWindows(false)

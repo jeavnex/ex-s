@@ -7,7 +7,7 @@ object DomainPolicy {
 
     private val blockedSuffixes = setOf(
         "777ua.com.ua",
-        "reallanduse.com",
+        "realanduse.com",
         "deltarockme.com",
         "beesratyou.com",
         "tallertorn.com",

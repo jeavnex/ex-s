@@ -1,6 +1,5 @@
 package app.exs.client
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -173,7 +172,7 @@ private fun MediaPoster(item: MediaCard, onOpen: (MediaCard) -> Unit) {
                 Text(item.badge, color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold,
                     modifier = Modifier.align(Alignment.TopStart).padding(8.dp).background(Violet, RoundedCornerShape(6.dp)).padding(horizontal = 7.dp, vertical = 4.dp))
             }
-            AnimatedVisibility(focused, Modifier.align(Alignment.Center)) {
+            if (focused) {
                 Text("▶", color = Ink, fontSize = 22.sp, modifier = Modifier.background(Cyan, RoundedCornerShape(50)).padding(horizontal = 15.dp, vertical = 10.dp))
             }
         }

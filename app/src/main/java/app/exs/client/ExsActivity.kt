@@ -162,13 +162,21 @@ class ExsActivity : ComponentActivity() {
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (state.screen == AppScreen.PLAYER) when (keyCode) {
             KeyEvent.KEYCODE_BACK -> { handleBack(); return true }
-            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> { playerKey("toggle"); return true }
-            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND -> { playerKey("left"); return true }
-            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> { playerKey("right"); return true }
+            KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+            KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND,
+            KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> return web.dispatchKeyEvent(event)
         }
         return super.onKeyDown(keyCode, event)
     }
-    private fun playerKey(value: String) = web.evaluateJavascript("window.EXSApp&&window.EXSApp.playerKey('$value')", null)
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (state.screen == AppScreen.PLAYER && keyCode in setOf(
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER, KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE,
+                KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_MEDIA_REWIND,
+                KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_MEDIA_FAST_FORWARD,
+            )) return web.dispatchKeyEvent(event)
+        return super.onKeyUp(keyCode, event)
+    }
 
     private fun onSiteEvent(event: JSONObject) {
         when (event.optString("type")) {

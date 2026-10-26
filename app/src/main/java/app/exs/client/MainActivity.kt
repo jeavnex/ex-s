@@ -20,7 +20,7 @@ import android.widget.LinearLayout
 import android.widget.ProgressBar
 import android.widget.Toast
 
-class MainActivity : Activity(), SafeWebViewClient.Listener {
+private class LegacyWebActivity : Activity(), SafeWebViewClient.Listener {
     private lateinit var webView: WebView
     private lateinit var progressBar: ProgressBar
     private lateinit var root: FrameLayout

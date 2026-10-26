@@ -13,6 +13,9 @@ object DomainPolicy {
         "tallertorn.com",
         "agl007.site",
         "onelink.me",
+        "miceonme.com",
+        "myangular.life",
+        "counter.yadro.ru",
     )
 
     fun isAllowedTopLevel(url: String): Boolean {

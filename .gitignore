@@ -1,0 +1,12 @@
+.gradle/
+.idea/
+local.properties
+**/build/
+.local-signing/
+*.jks
+*.keystore
+private/
+*.apk
+*.aab
+worker/.dev.vars
+worker/.wrangler/

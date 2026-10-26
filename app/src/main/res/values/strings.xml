@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">EX-S</string>
+    <string name="home">Главная</string>
+    <string name="back">Назад</string>
+    <string name="forward">Вперёд</string>
+    <string name="reload">Обновить</string>
+    <string name="login">Войти</string>
+    <string name="update">Версия</string>
+</resources>

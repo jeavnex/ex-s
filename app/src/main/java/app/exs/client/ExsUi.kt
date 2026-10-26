@@ -96,7 +96,7 @@ private fun CatalogScreen(
             }
             Spacer(Modifier.height(14.dp))
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CatalogSection.entries.forEach { section -> FocusPill(section.label, state.section == section) { onSection(section) } }
+                CatalogSection.entries.forEach { section -> FocusPill(section.label, state.section == section, onClick = { onSection(section) }) }
             }
             Spacer(Modifier.height(16.dp))
             SearchBox(state.query, onSearch)
@@ -242,7 +242,7 @@ private fun DetailScreen(state: ExsState, onPlay: (Int) -> Unit, onBack: () -> U
 private fun PlayerButtons(detail: MediaDetail, onPlay: (Int) -> Unit) {
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         detail.players.ifEmpty { listOf(PlayerChoice(0, "Смотреть")) }.forEachIndexed { position, player ->
-            FocusPill(if (position == 0) "▶ ${player.label}" else player.label, position == 0) { onPlay(player.index) }
+            FocusPill(if (position == 0) "▶ ${player.label}" else player.label, position == 0, onClick = { onPlay(player.index) })
         }
     }
 }

@@ -3,6 +3,7 @@
 local.properties
 **/build/
 .local-signing/
+.local-release/
 *.jks
 *.keystore
 private/

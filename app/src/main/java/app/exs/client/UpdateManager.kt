@@ -75,17 +75,9 @@ class UpdateManager(private val activity: Activity) {
         return try {
             if (connection.responseCode != 200) return null
             val json = JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
-            val tag = json.optString("tag_name").removePrefix("v")
-            val assets = json.optJSONArray("assets") ?: return null
-            var downloadUrl: String? = null
-            for (index in 0 until assets.length()) {
-                val asset = assets.getJSONObject(index)
-                if (asset.optString("name") == APK_NAME) {
-                    downloadUrl = asset.optString("browser_download_url")
-                    break
-                }
-            }
-            if (tag.isBlank() || downloadUrl.isNullOrBlank()) null else ReleaseInfo(tag, downloadUrl)
+            val version = json.optString("versionName")
+            val downloadUrl = json.optString("apkUrl")
+            if (version.isBlank() || downloadUrl.isBlank()) null else ReleaseInfo(version, downloadUrl)
         } finally {
             connection.disconnect()
         }
@@ -143,7 +135,7 @@ class UpdateManager(private val activity: Activity) {
     data class ReleaseInfo(val version: String, val downloadUrl: String)
 
     companion object {
-        private const val RELEASE_API = "https://api.github.com/repos/jeavnex/ex-s/releases/latest"
+        private const val RELEASE_API = "https://raw.githubusercontent.com/jeavnex/ex-s/main/getUpdate"
         private const val APK_NAME = "ex-s-universal.apk"
 
         fun compareVersions(left: String, right: String): Int {

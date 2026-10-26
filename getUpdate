@@ -1,0 +1,11 @@
+{
+  "versionCode": 4,
+  "versionName": "0.3.0",
+  "apkUrl": "https://github.com/jeavnex/ex-s/releases/latest/download/ex-s-universal.apk",
+  "whatsNew": [
+    "Исправлена загрузка постеров",
+    "Добавлен отдельный интерфейс карточки для телефона",
+    "Убрано нежелательное изменение ориентации",
+    "Сохранено управление пультом Android TV"
+  ]
+}

@@ -13,6 +13,15 @@
   function error(message) { emit('error', { message: message || 'EX-FS не ответил.' }); }
   function text(node) { return node ? String(node.textContent || '').replace(/\s+/g, ' ').trim() : ''; }
   function absolute(value, base) { try { return new URL(value || '', base || location.href).href; } catch (_) { return ''; } }
+  function posterUrl(value, base) {
+    try {
+      var url = new URL(value || '', base || location.href);
+      if (url.pathname.endsWith('/thumbs.php') && url.searchParams.get('src')) {
+        return new URL(url.searchParams.get('src'), location.origin).href;
+      }
+      return url.href;
+    } catch (_) { return ''; }
+  }
   function cleanTitle(value) {
     return String(value || '').replace(/^\s*Смотреть\s+[«"]?/i, '').replace(/[»"]?\s+онлайн.*$/i, '').replace(/\s+смотреть\s+онлайн.*$/i, '').trim();
   }
@@ -32,7 +41,7 @@
     return {
       url: absolute(anchor.getAttribute('href'), base),
       title: cleanTitle(rawTitle),
-      poster: absolute(image && image.getAttribute('src'), base),
+      poster: posterUrl(image && image.getAttribute('src'), base),
       meta: text(info),
       badge: text(badge)
     };
@@ -86,7 +95,7 @@
     choices.sort(function (a, b) { return Number(b.ready) - Number(a.ready); });
     return {
       url: url, title: title, originalTitle: original,
-      poster: absolute(poster && poster.getAttribute('src'), url),
+      poster: posterUrl(poster && poster.getAttribute('src'), url),
       meta: [year, country].filter(Boolean).join(' · '),
       facts: [genre, quality, duration].filter(Boolean).join(' · '),
       description: description, rating: ratings[0] || '',

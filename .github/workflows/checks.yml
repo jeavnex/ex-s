@@ -24,9 +24,21 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Тесты, lint и универсальный debug APK
-        run: ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug
+        shell: bash
+        run: |
+          set +e
+          ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug 2>&1 | tee build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            message=$(tail -80 build.log | tr '\n' ' ' | sed 's/%/%25/g; s/\r/%0D/g')
+            echo "::error title=Android build failed::$message"
+          fi
+          exit "$status"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
         with:
           name: ex-s-debug
-          path: app/build/outputs/apk/debug/app-debug.apk
-          if-no-files-found: error
+          path: |
+            app/build/outputs/apk/debug/app-debug.apk
+            build.log
+          if-no-files-found: warn

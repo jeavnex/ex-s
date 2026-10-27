@@ -113,7 +113,7 @@ private fun PhoneCatalog(
             SearchBox(state.query, onSearch)
             Spacer(Modifier.height(13.dp))
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                listOf(CatalogSection.HOME, CatalogSection.MOVIES, CatalogSection.SERIES, CatalogSection.CARTOONS, CatalogSection.SHOWS, CatalogSection.FAVORITES).forEach { section ->
+                CatalogSection.entries.forEach { section ->
                     SectionChip(section.label, state.section == section) { onSection(section) }
                 }
             }
@@ -150,7 +150,13 @@ private fun TvCatalog(
                 SearchBox(state.query, onSearch, Modifier.weight(1f))
                 FocusPill("↻ Обновить", false, onUpdate)
             }
-            Spacer(Modifier.height(20.dp))
+            Spacer(Modifier.height(12.dp))
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                CatalogSection.entries.filterNot { it.primary }.forEach { section ->
+                    SectionChip(section.label, state.section == section) { onSection(section) }
+                }
+            }
+            Spacer(Modifier.height(16.dp))
             Row(verticalAlignment = Alignment.Bottom) {
                 Column(Modifier.weight(1f)) {
                     Text(state.section.label, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
@@ -177,7 +183,7 @@ private fun TvNavigation(state: ExsState, onSection: (CatalogSection) -> Unit, o
     val first = remember { FocusRequester() }
     Column(Modifier.width(180.dp).fillMaxHeight()) {
         Brand(Modifier.padding(start = 10.dp, bottom = 24.dp))
-        CatalogSection.entries.forEachIndexed { index, section ->
+        CatalogSection.entries.filter { it.primary }.forEachIndexed { index, section ->
             NavItem(
                 icon = when (section) {
                     CatalogSection.HOME -> "⌂"
@@ -186,6 +192,7 @@ private fun TvNavigation(state: ExsState, onSection: (CatalogSection) -> Unit, o
                     CatalogSection.CARTOONS -> "◇"
                     CatalogSection.SHOWS -> "▣"
                     CatalogSection.FAVORITES -> "♥"
+                    else -> "•"
                 },
                 label = section.label,
                 selected = state.section == section,
@@ -350,12 +357,13 @@ private fun DetailScreen(state: ExsState, onPlay: (Int) -> Unit, onBack: () -> U
                     }
                 }
                 Spacer(Modifier.height(18.dp))
-                if (detail.card.meta.isNotBlank()) InfoChip(detail.card.meta)
+                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    PlayerButtons(detail, onPlay)
+                    if (detail.card.meta.isNotBlank()) InfoChip(detail.card.meta)
+                }
                 if (detail.facts.isNotBlank()) { Spacer(Modifier.height(12.dp)); Text(detail.facts, color = Muted, fontSize = 14.sp) }
                 Spacer(Modifier.height(16.dp))
                 Text(detail.description, color = Color(0xFFE1E8F0), fontSize = 16.sp, lineHeight = 23.sp)
-                Spacer(Modifier.height(22.dp))
-                PlayerButtons(detail, onPlay)
                 Spacer(Modifier.height(26.dp))
             }
         } else {
@@ -370,11 +378,11 @@ private fun DetailScreen(state: ExsState, onPlay: (Int) -> Unit, onBack: () -> U
                         if (detail.rating.isNotBlank()) InfoChip("★ ${detail.rating}")
                         if (detail.card.meta.isNotBlank()) InfoChip(detail.card.meta)
                     }
+                    Spacer(Modifier.height(16.dp))
+                    PlayerButtons(detail, onPlay)
                     Spacer(Modifier.height(20.dp))
                     Text(detail.description, color = Color(0xFFE1E8F0), fontSize = 17.sp, lineHeight = 25.sp, maxLines = 7, overflow = TextOverflow.Ellipsis)
                     if (detail.facts.isNotBlank()) { Spacer(Modifier.height(12.dp)); Text(detail.facts, color = Muted, fontSize = 14.sp, maxLines = 3) }
-                    Spacer(Modifier.height(28.dp))
-                    PlayerButtons(detail, onPlay)
                     Spacer(Modifier.height(12.dp))
                     Text("Во время просмотра: OK — пауза, ←/→ — перемотка, Назад — выйти", color = Muted, fontSize = 13.sp)
                 }
@@ -392,6 +400,59 @@ private fun PlayerButtons(detail: MediaDetail, onPlay: (Int) -> Unit) {
             FocusPill(if (position == 0) "▶ ${player.label}" else player.label, position == 0, onClick = { onPlay(player.index) })
         }
     }
+}
+
+@Composable
+fun PlayerChrome(
+    state: ExsState,
+    onBack: () -> Unit,
+    onToggle: () -> Unit,
+    onSeekBack: () -> Unit,
+    onSeekForward: () -> Unit,
+    onRotate: () -> Unit,
+) {
+    Box(Modifier.fillMaxSize()) {
+        if (!state.playerReady) {
+            Column(Modifier.fillMaxSize().background(Color.Black), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+                CircularProgressIndicator(color = Cyan)
+                Spacer(Modifier.height(16.dp))
+                Text("Готовим плеер…", color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                Text("Страница сайта скрыта", color = Muted, fontSize = 13.sp)
+            }
+        }
+        Row(
+            Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Color(0xB307111F)).padding(horizontal = 12.dp, vertical = 9.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(9.dp),
+        ) {
+            PlayerControl("← Назад", onBack)
+            Text(state.detail?.card?.title.orEmpty(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            PlayerControl("↻ Повернуть", onRotate)
+        }
+        if (state.playerReady) {
+            Row(
+                Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp).background(Color(0xD9101D2D), RoundedCornerShape(16.dp)).padding(8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                PlayerControl("−10", onSeekBack)
+                PlayerControl("▶ / ❚❚", onToggle, accent = true)
+                PlayerControl("+10", onSeekForward)
+            }
+        }
+    }
+}
+
+@Composable
+private fun PlayerControl(label: String, onClick: () -> Unit, accent: Boolean = false) {
+    var focused by remember { mutableStateOf(false) }
+    Text(
+        label,
+        color = if (accent || focused) Ink else Color.White,
+        fontSize = 13.sp,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.onFocusChanged { focused = it.isFocused }.focusable().clip(RoundedCornerShape(11.dp))
+            .background(if (accent || focused) Cyan else Color(0xFF24354A)).clickable(onClick = onClick).padding(horizontal = 15.dp, vertical = 11.dp),
+    )
 }
 
 @Composable

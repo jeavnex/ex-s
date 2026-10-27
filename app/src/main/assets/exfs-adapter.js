@@ -72,18 +72,25 @@
     endings.forEach(function (ending) { var at = result.indexOf(ending); if (at >= 0) result = result.slice(0, at); });
     return result.replace(/^[:\s]+/, '').trim();
   }
+  function infoValue(doc, label) {
+    var title = Array.from(doc.querySelectorAll('.FullstoryInfoTitle')).find(function (node) {
+      return text(node).replace(/:$/, '').toLocaleLowerCase('ru') === String(label).toLocaleLowerCase('ru');
+    });
+    return text(title && title.nextElementSibling);
+  }
   function detailFrom(doc, url) {
     var title = cleanTitle(text(doc.querySelector('h1.view-caption, h1')));
     var original = cleanTitle(text(doc.querySelector('h2')));
     var poster = doc.querySelector('#dle-content img[src*="uploads/posts"], .full-poster img, img[src*="uploads/posts"]');
-    var body = text(doc.querySelector('#dle-content'));
-    var description = sliceBetween(body, 'Сюжет', ['подробнее', 'Кадры из фильма', 'Информация о фильме']);
-    var year = sliceBetween(body, 'Год', ['Страна']);
-    var country = sliceBetween(body, 'Страна', ['Жанр']);
-    var genre = sliceBetween(body, 'Жанр', ['Перевод']);
-    var quality = sliceBetween(body, 'Качество', ['Время']);
-    var duration = sliceBetween(body, 'Время', ['Плеер']);
-    var ratings = Array.from(doc.querySelectorAll('[class*="rating"]')).map(text).filter(function (v) { return /^\d+[.,]\d+/.test(v); });
+    var description = text(doc.querySelector('.FullstorySubFormText'));
+    var year = infoValue(doc, 'Год');
+    var country = infoValue(doc, 'Страна');
+    var genre = infoValue(doc, 'Жанр');
+    var translation = infoValue(doc, 'Перевод');
+    var quality = infoValue(doc, 'Качество');
+    var duration = infoValue(doc, 'Время');
+    var age = infoValue(doc, 'Возраст');
+    var ratings = Array.from(doc.querySelectorAll('.in_name_kp, .in_name_imdb')).map(text).filter(function (v) { return /^\d+[.,]\d+/.test(v); });
     var choices = [];
     Array.from(doc.querySelectorAll('.tab-pane')).forEach(function (panel, panelIndex) {
       var iframe = panel.querySelector('iframe'); if (!iframe) return;
@@ -97,7 +104,7 @@
       url: url, title: title, originalTitle: original,
       poster: posterUrl(poster && poster.getAttribute('src'), url),
       meta: [year, country].filter(Boolean).join(' · '),
-      facts: [genre, quality, duration].filter(Boolean).join(' · '),
+      facts: [genre, translation, quality, duration, age && ('Возраст ' + age)].filter(Boolean).join(' · '),
       description: description, rating: ratings[0] || '',
       players: choices.map(function (p) { return { index: p.index, label: p.label }; })
     };
@@ -119,16 +126,21 @@
     var panel = panels[Number(panelIndex)] || panels.find(function (p) { return p.querySelector('iframe[src]'); }) || panels[0];
     if (!panel) { error('На странице не найден видеоплеер.'); return; }
     panels.forEach(function (p) { p.classList.remove('exs-player-active'); });
+    document.body.appendChild(panel);
     panel.classList.add('exs-player-active');
+    var viewport = document.querySelector('meta[name="viewport"]') || document.head.appendChild(document.createElement('meta'));
+    viewport.name = 'viewport';
+    viewport.content = 'width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover';
     var style = document.getElementById('exs-player-style') || document.head.appendChild(document.createElement('style'));
     style.id = 'exs-player-style';
     style.textContent = 'html,body{margin:0!important;background:#000!important;overflow:hidden!important;width:100%!important;height:100%!important}' +
       'body>*{visibility:hidden!important}.exs-player-active,.exs-player-active *{visibility:visible!important}' +
-      '.tab-pane.exs-player-active{display:block!important;position:fixed!important;inset:0!important;z-index:2147483000!important;background:#000!important}' +
-      '.exs-player-active iframe{display:block!important;border:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important}' +
+      '.tab-pane.exs-player-active{display:block!important;position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100vw!important;height:100vh!important;margin:0!important;padding:0!important;transform:none!important;z-index:2147483000!important;background:#000!important}' +
+      '.exs-player-active iframe{display:block!important;position:absolute!important;inset:0!important;border:0!important;margin:0!important;padding:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;transform:none!important}' +
       '[class*="popup"],[class*="popunder"],[id*="popup"],[id*="advert"]{display:none!important}';
     var iframe = panel.querySelector('iframe');
     if (iframe) { iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media'); iframe.setAttribute('allowfullscreen', ''); iframe.focus(); }
+    setTimeout(function () { emit('playerReady'); }, 250);
   }
   function play(data) {
     var url = absolute(data.url);

@@ -18,6 +18,7 @@ class DomainPolicyTest {
     fun blocksKnownAdvertisingHosts() {
         assertTrue(DomainPolicy.isBlockedResource("https://track.realanduse.com/a.js"))
         assertTrue(DomainPolicy.isBlockedResource("https://777ua.com.ua/register/"))
+        assertTrue(DomainPolicy.isBlockedResource("https://distribrey.com/load-xml/?roll=pre"))
         assertFalse(DomainPolicy.isBlockedResource("https://ex-fs.net/app.js"))
     }
 }

@@ -62,6 +62,11 @@ class ExsActivity : ComponentActivity() {
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() = handleBack()
         })
+        val activityCallback = window.callback
+        window.callback = object : android.view.Window.Callback by activityCallback {
+            override fun dispatchKeyEvent(event: KeyEvent): Boolean =
+                handlePlayerKey(event) || activityCallback.dispatchKeyEvent(event)
+        }
         setContent {
             val savedScreens = rememberSaveableStateHolder()
             Box(Modifier.fillMaxSize()) {
@@ -255,7 +260,7 @@ class ExsActivity : ComponentActivity() {
 
     // Fullscreen WebView owns a separate surface: Activity.onKeyDown is not
     // guaranteed to see its keys. Handle media actions before dispatch to it.
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    private fun handlePlayerKey(event: KeyEvent): Boolean {
         if (state.screen == AppScreen.PLAYER) {
             if (event.keyCode == KeyEvent.KEYCODE_BACK) {
                 if (event.action == KeyEvent.ACTION_UP) handleBack()
@@ -286,7 +291,7 @@ class ExsActivity : ComponentActivity() {
                 return true
             }
         }
-        return super.dispatchKeyEvent(event)
+        return false
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {

@@ -8,6 +8,8 @@
 
   var PENDING = 'exs-pending-v2';
   var TRANSPARENT_POSTER = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
+  var cancelAutostart = null;
+  var remoteControl = null;
   function emit(type, data) {
     try { window.EXSBridge.postMessage(JSON.stringify(Object.assign({ type: type }, data || {}))); } catch (_) {}
   }
@@ -122,6 +124,9 @@
     });
   }
   function activatePlayer(panelIndex) {
+    if (cancelAutostart) cancelAutostart();
+    if (window.EXSClosePlayer) window.EXSClosePlayer();
+    remoteControl = null;
     removeAdvertising();
     var panels = Array.from(document.querySelectorAll('.tab-pane'));
     var panel = panels[Number(panelIndex)] || panels.find(function (p) { return p.querySelector('iframe[src]'); }) || panels[0];
@@ -160,6 +165,23 @@
     var provider = absolute(iframe.getAttribute('src')) || 'встроенный iframe без src';
     emit('diagnostic', { message: 'Открыт ' + (text(trigger) || ('плеер ' + panelIndex)) + ': ' + provider });
     iframe.focus();
+    var startCancelled = false;
+    var startAttempts = 0;
+    cancelAutostart = function () { startCancelled = true; };
+    function autoplay() {
+      if (startCancelled || !iframe.classList.contains('exs-frame-active')) return;
+      startAttempts++;
+      var video = originalVideo(iframe);
+      if (video && !video.paused && video.readyState >= 2) {
+        startCancelled = true;
+        emit('diagnostic', { message: 'Автозапуск: воспроизведение подтверждено' });
+        return;
+      }
+      originalAction(iframe, 'play');
+      if (startAttempts < 15) setTimeout(autoplay, 1500);
+      else emit('diagnostic', { message: 'Автозапуск: таймаут; нажмите OK, проверьте журнал ошибок видео' });
+    }
+    setTimeout(autoplay, 700);
     // The iframe must stay in its original DOM position: moving a src-less
     // actualize iframe destroys its dynamically written player document.
     function fitOriginalPlayer() {
@@ -190,6 +212,7 @@
     fullscreenButton.setAttribute('aria-label', 'Открыть оригинальный плеер на весь экран');
     fullscreenButton.style.cssText = 'position:fixed;left:0;top:0;width:48px;height:48px;z-index:2147483647;background:#152638;color:white;border:0;font-size:24px';
     fullscreenButton.onclick = function () {
+      originalAction(iframe, 'play');
       var request = iframe.requestFullscreen || iframe.webkitRequestFullscreen;
       if (!request) { emit('diagnostic', { message: 'Fullscreen API недоступен; оставлена кнопка оригинального плеера' }); return; }
       try {
@@ -230,6 +253,7 @@
           video.dataset.exsObserved = '1';
           ['loadedmetadata', 'canplay', 'playing', 'waiting', 'stalled', 'error'].forEach(function (eventName) {
             video.addEventListener(eventName, function () {
+              if (eventName === 'playing') startCancelled = true;
               var mediaError = video.error ? (' code=' + video.error.code + ' ' + (video.error.message || '')) : '';
               emit('diagnostic', { message: 'video ' + eventName + ': ready=' + video.readyState + ', network=' + video.networkState + mediaError });
             });
@@ -265,6 +289,8 @@
     if (link) link.click(); else error('Кнопка входа на сайте не найдена.');
   }
   function closeSurface() {
+    if (cancelAutostart) { cancelAutostart(); cancelAutostart = null; }
+    remoteControl = null;
     if (window.EXSClosePlayer) { window.EXSClosePlayer(); window.EXSClosePlayer = null; }
     document.documentElement.classList.remove('exs-login');
     document.querySelectorAll('.exs-player-active').forEach(function (p) { p.classList.remove('exs-player-active'); });
@@ -277,17 +303,81 @@
     document.querySelectorAll('.exs-frame-ancestor').forEach(function (node) { node.classList.remove('exs-frame-ancestor'); });
     var video = document.querySelector('video'); if (video) video.pause();
   }
+  function originalVideo(frame) {
+    try {
+      var inner = frame && frame.contentDocument;
+      if (!inner) return null;
+      var videos = Array.from(inner.querySelectorAll('video'));
+      return videos.find(function (v) { return v.currentSrc && !v.error; }) || videos[0] || null;
+    } catch (_) { return null; }
+  }
+  function originalAction(frame, action) {
+    var video = originalVideo(frame);
+    var actual = action === 'toggle' ? (!video || video.paused ? 'play' : 'pause') : action;
+    try {
+      var win = frame.contentWindow;
+      // Playerjs's own API starts its HLS loader and clears the initial Play
+      // overlay; video.play() alone may leave the media element without a src.
+      var names = ['player', 'playerjs', 'pjs', 'app'].concat(Object.keys(win));
+      var api = null;
+      for (var i = 0; i < names.length && !api; i++) {
+        var descriptor = Object.getOwnPropertyDescriptor(win, names[i]);
+        var value = descriptor && descriptor.value;
+        if (value && typeof value.api === 'function') api = value;
+      }
+      if (api) {
+        if (actual === 'left' || actual === 'right') {
+          var time = Number(api.api('time')) || (video && video.currentTime) || 0;
+          api.api('seek', Math.max(0, Math.min(video && video.duration || Infinity, time + (actual === 'left' ? -10 : 10))));
+        } else api.api(actual);
+        return true;
+      }
+    } catch (_) {}
+    if (!video) {
+      emit('diagnostic', { message: 'Пульт: API плеера недоступен (возможно, другой домен)' });
+      return false;
+    }
+    if (actual === 'play') {
+      try {
+        var promise = video.play();
+        if (promise && promise.catch) promise.catch(function (e) { emit('diagnostic', { message: 'play(): ' + e.name + ' ' + e.message }); });
+      } catch (_) {}
+    }
+    if (actual === 'pause') video.pause();
+    if (actual === 'left' || actual === 'right') video.currentTime = Math.max(0, Math.min(video.duration || Infinity, video.currentTime + (actual === 'left' ? -10 : 10)));
+    return true;
+  }
   function playerKey(action) {
     var frame = document.querySelector('iframe.exs-frame-active');
-    var video = null;
-    if (frame) {
-      try { video = frame.contentDocument && frame.contentDocument.querySelector('video'); } catch (_) {}
-      if (!video) { frame.focus(); return; }
-    }
-    video = video || document.querySelector('video'); if (!video) return;
-    if (action === 'toggle') video.paused ? video.play() : video.pause();
-    if (action === 'left') video.currentTime = Math.max(0, video.currentTime - 10);
-    if (action === 'right') video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 10);
+    if (!frame) return;
+    if (cancelAutostart) cancelAutostart();
+    try {
+      var inner = frame.contentDocument;
+      if (inner && action === 'controls') {
+        var controls = Array.from(inner.querySelectorAll('button,select,[role="button"],[tabindex],[title]')).filter(function (node) {
+          var rect = node.getBoundingClientRect(); return rect.width > 8 && rect.height > 8 && !node.disabled;
+        });
+        remoteControl = controls.length ? { items: controls, index: 0 } : null;
+      } else if (action === 'video') {
+        if (remoteControl) remoteControl.items.forEach(function (node) { node.style.outline = ''; });
+        remoteControl = null;
+      }
+      else if (remoteControl) {
+        if (action === 'left' || action === 'right') remoteControl.index = (remoteControl.index + (action === 'left' ? -1 : 1) + remoteControl.items.length) % remoteControl.items.length;
+        if (action === 'toggle') {
+          var control = remoteControl.items[remoteControl.index];
+          if (control.tagName === 'SELECT' && control.options.length) {
+            control.selectedIndex = (control.selectedIndex + 1) % control.options.length;
+            control.dispatchEvent(new Event('change', { bubbles: true }));
+          } else control.click();
+          return;
+        }
+      } else { originalAction(frame, action); return; }
+      if (remoteControl) {
+        remoteControl.items.forEach(function (node, index) { node.style.outline = index === remoteControl.index ? '3px solid #35d4ff' : ''; });
+        var selected = remoteControl.items[remoteControl.index]; selected.tabIndex = 0; selected.focus();
+      }
+    } catch (_) { originalAction(frame, action); }
   }
   function authState() {
     var authLink = Array.from(document.querySelectorAll('a')).find(function (a) { return /авторизац/i.test(text(a)); });

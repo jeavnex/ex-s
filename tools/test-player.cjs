@@ -8,7 +8,7 @@ class Element extends EventTarget {
   constructor(tag) {
     super(); this.tagName = tag; this.attrs = {}; this.children = []; this.style = {};
     this.dataset = {}; this.classes = new Set();
-    this.classList = {add: c => this.classes.add(c), remove: c => this.classes.delete(c)};
+    this.classList = {add: c => this.classes.add(c), remove: c => this.classes.delete(c), contains: c => this.classes.has(c)};
   }
   setAttribute(k, v) { this.attrs[k] = v; }
   getAttribute(k) { return this.attrs[k] || null; }
@@ -26,6 +26,7 @@ function documentFixture() {
 const document = documentFixture(), inner = documentFixture();
 const root = inner.body.appendChild(new Element('div'));
 const video = root.appendChild(new Element('video')); video.pause = () => {};
+video.paused = true; video.readyState = 0; video.currentTime = 20; video.duration = 120;
 inner.querySelectorAll = selector => selector === 'video' ? [video] : [];
 inner.querySelector = selector => selector === 'video' ? video : null;
 inner.documentElement.innerHTML = '<video></video>';
@@ -33,9 +34,18 @@ const panel = document.body.appendChild(new Element('section'));
 const frame = panel.appendChild(new Element('iframe'));
 frame.contentDocument = inner;
 frame.contentWindow = {postMessage: m => messages.push(m), dispatchEvent() {}};
+const apiCalls = [];
+frame.contentWindow.player = {api(command, value) {
+  apiCalls.push([command, value]);
+  if (command === 'play') { video.paused = false; video.readyState = 4; }
+  if (command === 'pause') video.paused = true;
+  if (command === 'time') return video.currentTime;
+  if (command === 'seek') video.currentTime = value;
+}};
 let requests = 0;
 frame.requestFullscreen = function () { assert.equal(this, frame); requests++; document.fullscreenElement = frame; document.dispatchEvent(new Event('fullscreenchange')); return Promise.resolve(); };
 panel.querySelector = () => frame;
+document.querySelector = s => s === 'iframe.exs-frame-active' ? frame : null;
 document.querySelectorAll = s => s === '.tab-pane' ? [panel] : s === 'iframe.exs-frame-active' ? [frame] : [];
 const context = {document, location: new URL('https://ex-fs.net/film/test.html'), URL, Event,
   innerWidth: 900, innerHeight: 450, addEventListener() {}, removeEventListener() {},
@@ -49,6 +59,16 @@ timers.splice(0).forEach(fn => fn());
 assert.equal(frame.parentElement, panel, 'src-less iframe stays alive');
 assert.equal(frame.contentDocument, inner);
 assert.equal(events.filter(e => e.type === 'fullscreenRequest').length, 1);
+assert.ok(apiCalls.some(call => call[0] === 'play'), 'Opening the player starts its actual playback API');
+assert.equal(video.paused, false);
+context.EXSApp.playerKey('toggle');
+assert.equal(video.paused, true, 'Remote OK pauses exactly once');
+context.EXSApp.playerKey('right');
+assert.equal(video.currentTime, 30, 'Remote right seeks by ten seconds through provider API');
+timers.splice(0).forEach(fn => fn());
+assert.equal(video.paused, true, 'Autostart cannot override a user pause');
+context.EXSApp.playerKey('toggle');
+assert.equal(video.paused, false, 'Remote OK resumes without touchscreen input');
 document.getElementById('exs-enter-fullscreen').onclick();
 assert.equal(requests, 1, 'Fullscreen uses iframe, not a replacement video element');
 assert.equal(document.getElementById('exs-enter-fullscreen').hidden, true);

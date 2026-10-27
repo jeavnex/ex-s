@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.webkit.WebViewCompat
@@ -62,17 +63,22 @@ class ExsActivity : ComponentActivity() {
             override fun handleOnBackPressed() = handleBack()
         })
         setContent {
+            val savedScreens = rememberSaveableStateHolder()
             Box(Modifier.fillMaxSize()) {
                 AndroidView(factory = { web }, modifier = Modifier.fillMaxSize(), update = { view ->
                     val surface = state.screen == AppScreen.LOGIN || (state.screen == AppScreen.PLAYER && state.playerReady)
+                    val becomingVisible = surface && view.visibility != View.VISIBLE
                     view.visibility = if (surface) View.VISIBLE else View.INVISIBLE
                     view.isFocusable = surface
                     view.isFocusableInTouchMode = surface
-                    if (surface) view.requestFocus()
+                    if (becomingVisible) view.requestFocus()
+                    if (!surface) view.clearFocus()
                 })
                 if (state.screen == AppScreen.CATALOG || state.screen == AppScreen.DETAIL || state.screen == AppScreen.DIAGNOSTICS) {
+                    savedScreens.SaveableStateProvider("${state.screen}:${state.section}") {
                     ExsApp(state, ::openSection, ::openDetail, ::search, ::play, ::handleBack, ::openLogin, ::refresh,
                         { checkUpdates(true) }, ::openDiagnostics, ::clearLogs, ::shareLogs)
+                    }
                 }
                 if (state.screen == AppScreen.PLAYER) {
                     PlayerChrome(state, ::handleBack, ::toggleOrientation)
@@ -190,7 +196,7 @@ class ExsActivity : ComponentActivity() {
 
     private fun openSection(section: CatalogSection) {
         addLog("Раздел: ${section.label}")
-        state = state.copy(section = section, query = "", cards = emptyList(), loading = true, error = null)
+        state = state.copy(section = section, detail = null, query = "", cards = emptyList(), loading = true, error = null)
         command("catalog", json("path" to section.path, "query" to ""))
     }
     private fun search(query: String) {
@@ -241,10 +247,46 @@ class ExsActivity : ComponentActivity() {
                 state = state.copy(screen = AppScreen.DETAIL, playerReady = false, loading = false, error = null)
             }
             AppScreen.LOGIN -> { command("closeLogin"); state = state.copy(screen = AppScreen.CATALOG, loading = false, error = null); openSection(state.section) }
-            AppScreen.DETAIL -> state = state.copy(screen = AppScreen.CATALOG, detail = null, loading = false, error = null)
+            AppScreen.DETAIL -> state = state.copy(screen = AppScreen.CATALOG, loading = false, error = null)
             AppScreen.DIAGNOSTICS -> state = state.copy(screen = AppScreen.CATALOG, loading = false, error = null)
             AppScreen.CATALOG -> moveTaskToBack(true)
         }
+    }
+
+    // Fullscreen WebView owns a separate surface: Activity.onKeyDown is not
+    // guaranteed to see its keys. Handle media actions before dispatch to it.
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (state.screen == AppScreen.PLAYER) {
+            if (event.keyCode == KeyEvent.KEYCODE_BACK) {
+                if (event.action == KeyEvent.ACTION_UP) handleBack()
+                return true
+            }
+            val action = when (event.keyCode) {
+                KeyEvent.KEYCODE_MEDIA_PLAY -> "play"
+                KeyEvent.KEYCODE_MEDIA_PAUSE -> "pause"
+                KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE -> "toggle"
+                KeyEvent.KEYCODE_MEDIA_REWIND -> "left"
+                KeyEvent.KEYCODE_MEDIA_FAST_FORWARD -> "right"
+                KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> if (isTelevision) "toggle" else null
+                KeyEvent.KEYCODE_DPAD_LEFT -> if (isTelevision) "left" else null
+                KeyEvent.KEYCODE_DPAD_RIGHT -> if (isTelevision) "right" else null
+                KeyEvent.KEYCODE_DPAD_UP -> if (isTelevision) "controls" else null
+                KeyEvent.KEYCODE_DPAD_DOWN -> if (isTelevision) "video" else null
+                else -> null
+            }
+            if (action != null) {
+                if (event.action == KeyEvent.ACTION_DOWN && (event.repeatCount == 0 || action == "left" || action == "right")) {
+                    addLog("Пульт: $action; repeat=${event.repeatCount}")
+                    web.evaluateJavascript("window.EXSApp&&window.EXSApp.playerKey(${JSONObject.quote(action)});", null)
+                }
+                return true
+            }
+            if (event.keyCode == KeyEvent.KEYCODE_MENU) {
+                if (event.action == KeyEvent.ACTION_UP) { handleBack(); openDiagnostics() }
+                return true
+            }
+        }
+        return super.dispatchKeyEvent(event)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {

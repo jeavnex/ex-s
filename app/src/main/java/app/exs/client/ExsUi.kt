@@ -3,7 +3,6 @@ package app.exs.client
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -11,6 +10,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
@@ -161,6 +161,7 @@ private fun TvCatalog(
         Column(Modifier.weight(1f).fillMaxHeight()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 SearchBox(state.query, onSearch, Modifier.weight(1f))
+                FocusPill("⚙ Журнал", false, onDiagnostics)
                 FocusPill("↻ Обновить", false, onUpdate)
             }
             Spacer(Modifier.height(12.dp))
@@ -194,7 +195,7 @@ private fun Brand(modifier: Modifier = Modifier, compact: Boolean = false) {
 @Composable
 private fun TvNavigation(state: ExsState, onSection: (CatalogSection) -> Unit, onLogin: () -> Unit, onUpdate: () -> Unit, onDiagnostics: () -> Unit) {
     val first = remember { FocusRequester() }
-    Column(Modifier.width(180.dp).fillMaxHeight()) {
+    Column(Modifier.width(180.dp).fillMaxHeight().verticalScroll(rememberScrollState())) {
         Brand(Modifier.padding(start = 10.dp, bottom = 24.dp))
         CatalogSection.entries.filter { it.primary }.forEachIndexed { index, section ->
             NavItem(
@@ -214,7 +215,7 @@ private fun TvNavigation(state: ExsState, onSection: (CatalogSection) -> Unit, o
             )
             Spacer(Modifier.height(6.dp))
         }
-        Spacer(Modifier.weight(1f))
+        Spacer(Modifier.height(12.dp))
         Text(if (state.loggedIn) state.accountName.ifBlank { "ВХОД ВЫПОЛНЕН" } else "АККАУНТ EX-FS", color = Muted, fontSize = 9.sp, modifier = Modifier.padding(start = 10.dp, bottom = 5.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         NavItem(if (state.loggedIn) "●" else "○", if (state.loggedIn) "Аккаунт" else "Войти", false, onLogin)
         Spacer(Modifier.height(6.dp))
@@ -222,7 +223,7 @@ private fun TvNavigation(state: ExsState, onSection: (CatalogSection) -> Unit, o
         Spacer(Modifier.height(6.dp))
         NavItem("⚙", "Диагностика", false, onDiagnostics)
     }
-    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+    LaunchedEffect(Unit) { if (state.detail == null) runCatching { first.requestFocus() } }
 }
 
 @Composable
@@ -255,7 +256,7 @@ private fun PhoneNavigation(selected: CatalogSection, onSection: (CatalogSection
 private fun NavItem(icon: String, label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
     var focused by remember { mutableStateOf(false) }
     Row(
-        modifier.fillMaxWidth().height(46.dp).onFocusChanged { focused = it.isFocused }.focusable().clickable(onClick = onClick)
+        modifier.fillMaxWidth().height(46.dp).onFocusChanged { focused = it.isFocused }.clickable(onClick = onClick)
             .background(if (selected || focused) Cyan else Color.Transparent, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -307,18 +308,32 @@ private fun SectionChip(label: String, selected: Boolean, onClick: () -> Unit) =
 
 @Composable
 private fun CatalogGrid(state: ExsState, onOpen: (MediaCard) -> Unit, onRefresh: () -> Unit, compact: Boolean, modifier: Modifier = Modifier) {
+    val gridState = rememberLazyGridState()
+    val restoredCard = remember { FocusRequester() }
+    val restoreUrl = state.detail?.card?.url
+    LaunchedEffect(state.cards, state.loading) {
+        val index = state.cards.indexOfFirst { it.url == restoreUrl }
+        if (!compact && index >= 0 && !state.loading) {
+            gridState.scrollToItem(index)
+            withFrameNanos { }
+            runCatching { restoredCard.requestFocus() }
+        }
+    }
     if (!state.loading && state.cards.isEmpty()) {
         Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
             EmptyState(if (state.section == CatalogSection.FAVORITES) "Войдите в аккаунт или добавьте фильмы в закладки на EX-FS" else "В этом разделе пока ничего не найдено", onRefresh)
         }
     } else {
         LazyVerticalGrid(
+            state = gridState,
             columns = GridCells.Adaptive(if (compact) 132.dp else 145.dp),
             modifier = modifier,
             contentPadding = PaddingValues(start = 4.dp, top = 4.dp, end = 4.dp, bottom = 28.dp),
             horizontalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 18.dp),
             verticalArrangement = Arrangement.spacedBy(if (compact) 18.dp else 22.dp),
-        ) { items(state.cards, key = { it.url }) { MediaPoster(it, onOpen) } }
+        ) { items(state.cards, key = { it.url }) { card ->
+            MediaPoster(card, onOpen, if (card.url == restoreUrl) Modifier.focusRequester(restoredCard) else Modifier)
+        } }
     }
 }
 
@@ -339,7 +354,8 @@ private fun SearchBox(value: String, onSearch: (String) -> Unit, modifier: Modif
         BasicTextField(
             value = text,
             onValueChange = { text = it; if (it.length >= 2 || it.isEmpty()) onSearch(it) },
-            modifier = Modifier.weight(1f).focusable(interactionSource = interaction),
+            modifier = Modifier.weight(1f),
+            interactionSource = interaction,
             textStyle = TextStyle(color = Color.White, fontSize = 18.sp),
             cursorBrush = SolidColor(Cyan),
             singleLine = true,
@@ -349,11 +365,11 @@ private fun SearchBox(value: String, onSearch: (String) -> Unit, modifier: Modif
 }
 
 @Composable
-private fun MediaPoster(item: MediaCard, onOpen: (MediaCard) -> Unit) {
+private fun MediaPoster(item: MediaCard, onOpen: (MediaCard) -> Unit, modifier: Modifier = Modifier) {
     var focused by remember { mutableStateOf(false) }
     var imageFailed by remember(item.poster) { mutableStateOf(false) }
     Column(
-        Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }.focusable()
+        modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }
             .clickable { onOpen(item) },
     ) {
         Box(
@@ -425,7 +441,7 @@ private fun DetailScreen(state: ExsState, onPlay: (Int) -> Unit, onBack: () -> U
                     Text(detail.description, color = Color(0xFFE1E8F0), fontSize = 17.sp, lineHeight = 25.sp, maxLines = 7, overflow = TextOverflow.Ellipsis)
                     if (detail.facts.isNotBlank()) { Spacer(Modifier.height(12.dp)); Text(detail.facts, color = Muted, fontSize = 14.sp, maxLines = 3) }
                     Spacer(Modifier.height(12.dp))
-                    Text("Во время просмотра: OK — пауза, ←/→ — перемотка, Назад — выйти", color = Muted, fontSize = 13.sp)
+                    Text("OK — пуск/пауза · ←/→ — перемотка · ↑ — кнопки плеера · ↓ — вернуться к видео · Menu — журнал", color = Muted, fontSize = 13.sp)
                 }
                 Spacer(Modifier.width(42.dp))
                 PosterImage(detail.card.poster, detail.card.title, Modifier.width(260.dp).aspectRatio(.69f).clip(RoundedCornerShape(22.dp)).border(1.dp, Color(0x445BD6FF), RoundedCornerShape(22.dp)))
@@ -436,15 +452,22 @@ private fun DetailScreen(state: ExsState, onPlay: (Int) -> Unit, onBack: () -> U
 
 @Composable
 private fun PlayerButtons(detail: MediaDetail, onPlay: (Int) -> Unit) {
+    val firstPlayer = remember { FocusRequester() }
+    LaunchedEffect(detail.players) {
+        withFrameNanos { }
+        runCatching { firstPlayer.requestFocus() }
+    }
     Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         detail.players.ifEmpty { listOf(PlayerChoice(0, "Смотреть")) }.forEachIndexed { position, player ->
-            FocusPill(if (position == 0) "▶ ${player.label}" else player.label, position == 0, onClick = { onPlay(player.index) })
+            FocusPill(if (position == 0) "▶ ${player.label}" else player.label, position == 0, onClick = { onPlay(player.index) }, modifier = if (position == 0) Modifier.focusRequester(firstPlayer) else Modifier)
         }
     }
 }
 
 @Composable
 private fun DiagnosticsScreen(state: ExsState, onBack: () -> Unit, onClear: () -> Unit, onShare: () -> Unit) {
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { withFrameNanos { }; runCatching { first.requestFocus() } }
     val clipboard = LocalClipboardManager.current
     val report = remember(state.logs) {
         buildString {
@@ -456,7 +479,7 @@ private fun DiagnosticsScreen(state: ExsState, onBack: () -> Unit, onClear: () -
     }
     Column(Modifier.fillMaxSize().padding(18.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            FocusPill("← Назад", false, onBack, compact = true)
+            FocusPill("← Назад", false, onBack, compact = true, modifier = Modifier.focusRequester(first))
             Text("Диагностика EX-S", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
         }
         Spacer(Modifier.height(12.dp))
@@ -527,7 +550,7 @@ private fun PlayerControl(label: String, onClick: () -> Unit, accent: Boolean = 
         color = if (accent || focused) Ink else Color.White,
         fontSize = 13.sp,
         fontWeight = FontWeight.Bold,
-        modifier = Modifier.onFocusChanged { focused = it.isFocused }.focusable().clip(RoundedCornerShape(11.dp))
+        modifier = Modifier.onFocusChanged { focused = it.isFocused }.clip(RoundedCornerShape(11.dp))
             .background(if (accent || focused) Cyan else Color(0xFF24354A)).clickable(onClick = onClick).padding(horizontal = 15.dp, vertical = 11.dp),
     )
 }
@@ -541,11 +564,11 @@ private fun PosterImage(url: String, title: String?, modifier: Modifier, onError
 @Composable private fun InfoChip(text: String) = Text(text, color = Color.White, fontSize = 13.sp, modifier = Modifier.background(Color(0x5535D4FF), RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
 
 @Composable
-private fun FocusPill(label: String, selected: Boolean, onClick: () -> Unit, compact: Boolean = false) {
+private fun FocusPill(label: String, selected: Boolean, onClick: () -> Unit, compact: Boolean = false, modifier: Modifier = Modifier) {
     var focused by remember { mutableStateOf(false) }
     Text(
         label, color = if (selected || focused) Ink else Color.White, fontSize = 14.sp, fontWeight = FontWeight.Bold,
-        modifier = Modifier.onFocusChanged { focused = it.isFocused }.focusable().clickable(onClick = onClick)
+        modifier = modifier.onFocusChanged { focused = it.isFocused }.clickable(onClick = onClick)
             .background(if (selected || focused) Cyan else Panel, RoundedCornerShape(12.dp))
             .border(1.dp, if (selected || focused) Cyan else Color(0x334A6480), RoundedCornerShape(12.dp))
             .padding(horizontal = if (compact) 12.dp else 17.dp, vertical = if (compact) 10.dp else 12.dp),

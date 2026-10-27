@@ -1,8 +1,11 @@
 {
-  "versionCode": 7,
-  "versionName": "0.4.2",
+  "versionCode": 8,
+  "versionName": "0.4.3",
   "apkUrl": "https://github.com/jeavnex/ex-s/releases/latest/download/ex-s-universal.apk",
   "whatsNew": [
+    "Добавлена поддержка iframe без src, создаваемого actualize.js",
+    "Первый плеер показывается после инициализации Playerjs",
+    "Кнопки EX-S управляют доступным внутренним HTML5-видео",
     "Восстановлена исходная загрузка встроенных плееров",
     "Добавлена диагностика с копированием и отправкой журнала",
     "Панель EX-S можно скрыть для доступа к озвучке и шкале плеера",

@@ -12,7 +12,7 @@
   }
   function error(message) { emit('error', { message: message || 'EX-FS не ответил.' }); }
   function text(node) { return node ? String(node.textContent || '').replace(/\s+/g, ' ').trim() : ''; }
-  function absolute(value, base) { try { return new URL(value || '', base || location.href).href; } catch (_) { return ''; } }
+  function absolute(value, base) { if (!value) return ''; try { return new URL(value, base || location.href).href; } catch (_) { return ''; } }
   function posterUrl(value, base) {
     try {
       var url = new URL(value || '', base || location.href);
@@ -127,6 +127,7 @@
     if (!panel) { error('На странице не найден видеоплеер.'); return; }
     var trigger = panel.id && document.querySelector('a[href="#' + panel.id + '"]');
     if (trigger) trigger.click();
+    document.querySelectorAll('iframe.exs-frame-active').forEach(function (frame) { frame.classList.remove('exs-frame-active'); });
     panels.forEach(function (p) { p.classList.remove('exs-player-active'); });
     panel.classList.add('exs-player-active');
     var viewport = document.querySelector('meta[name="viewport"]') || document.head.appendChild(document.createElement('meta'));
@@ -135,9 +136,8 @@
     var style = document.getElementById('exs-player-style') || document.head.appendChild(document.createElement('style'));
     style.id = 'exs-player-style';
     style.textContent = 'html,body{margin:0!important;background:#000!important;overflow:hidden!important;width:100%!important;height:100%!important}' +
-      'body>*{visibility:hidden!important}.exs-player-active,.exs-player-active *{visibility:visible!important}' +
-      '.tab-pane.exs-player-active{display:block!important;position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;width:100vw!important;height:100vh!important;margin:0!important;padding:0!important;transform:none!important;z-index:2147483000!important;background:#000!important}' +
-      '.exs-player-active iframe{display:block!important;position:absolute!important;inset:0!important;border:0!important;margin:0!important;padding:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;transform:none!important}' +
+      'body>*{visibility:hidden!important}iframe.exs-frame-active{visibility:visible!important}' +
+      'iframe.exs-frame-active{display:block!important;position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;border:0!important;margin:0!important;padding:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;transform:none!important;z-index:2147483000!important;background:#000!important}' +
       '[class*="popup"],[class*="popunder"],[id*="popup"],[id*="advert"]{display:none!important}';
     var iframe = panel.querySelector('iframe');
     if (!iframe) { error('В выбранной вкладке нет видеоплеера.'); return; }
@@ -145,12 +145,22 @@
     if (!iframe.getAttribute('src') && lazySource) iframe.setAttribute('src', lazySource);
     iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
     iframe.setAttribute('allowfullscreen', '');
+    iframe.setAttribute('data-exs-parent', panel.id || '');
+    iframe.classList.add('exs-frame-active');
+    document.body.appendChild(iframe);
     iframe.addEventListener('load', function () {
       emit('diagnostic', { message: 'iframe загружен: ' + absolute(iframe.getAttribute('src')) });
     }, { once: true });
-    emit('diagnostic', { message: 'Открыт ' + (text(trigger) || ('плеер ' + panelIndex)) + ': ' + absolute(iframe.getAttribute('src')) });
+    var provider = absolute(iframe.getAttribute('src')) || 'встроенный iframe без src';
+    emit('diagnostic', { message: 'Открыт ' + (text(trigger) || ('плеер ' + panelIndex)) + ': ' + provider });
     iframe.focus();
-    setTimeout(function () { emit('playerReady', { provider: absolute(iframe.getAttribute('src')) }); }, 500);
+    setTimeout(function () {
+      try {
+        var inner = iframe.contentDocument;
+        emit('diagnostic', { message: 'Внутри iframe: HTML=' + (inner && inner.documentElement ? inner.documentElement.innerHTML.length : 0) + ', video=' + (inner ? inner.querySelectorAll('video').length : 0) });
+      } catch (_) { emit('diagnostic', { message: 'Содержимое iframe защищено другим доменом' }); }
+      emit('playerReady', { provider: absolute(iframe.getAttribute('src')) || 'embedded-frame' });
+    }, 500);
   }
   function play(data) {
     var url = absolute(data.url);
@@ -173,12 +183,22 @@
   function closeSurface() {
     document.documentElement.classList.remove('exs-login');
     document.querySelectorAll('.exs-player-active').forEach(function (p) { p.classList.remove('exs-player-active'); });
+    document.querySelectorAll('iframe.exs-frame-active').forEach(function (frame) {
+      try { var video = frame.contentDocument && frame.contentDocument.querySelector('video'); if (video) video.pause(); } catch (_) {}
+      frame.classList.remove('exs-frame-active');
+      var parent = frame.getAttribute('data-exs-parent') && document.getElementById(frame.getAttribute('data-exs-parent'));
+      if (parent) parent.appendChild(frame);
+    });
     var video = document.querySelector('video'); if (video) video.pause();
   }
   function playerKey(action) {
-    var frame = document.querySelector('.exs-player-active iframe');
-    if (frame) { frame.focus(); return; }
-    var video = document.querySelector('video'); if (!video) return;
+    var frame = document.querySelector('iframe.exs-frame-active');
+    var video = null;
+    if (frame) {
+      try { video = frame.contentDocument && frame.contentDocument.querySelector('video'); } catch (_) {}
+      if (!video) { frame.focus(); return; }
+    }
+    video = video || document.querySelector('video'); if (!video) return;
     if (action === 'toggle') video.paused ? video.play() : video.pause();
     if (action === 'left') video.currentTime = Math.max(0, video.currentTime - 10);
     if (action === 'right') video.currentTime = Math.min(video.duration || Infinity, video.currentTime + 10);

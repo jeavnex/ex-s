@@ -41,6 +41,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.request.ImageRequest
+import kotlinx.coroutines.delay
 
 private val Ink = Color(0xFF07111F)
 private val Panel = Color(0xE6162436)
@@ -489,6 +490,12 @@ fun PlayerChrome(
     onRotate: () -> Unit,
 ) {
     var chromeVisible by remember(state.detail?.card?.url) { mutableStateOf(true) }
+    LaunchedEffect(state.playerReady) {
+        if (state.playerReady) {
+            delay(1800)
+            chromeVisible = false
+        }
+    }
     Box(Modifier.fillMaxSize()) {
         if (!state.playerReady) {
             Column(Modifier.fillMaxSize().background(Color.Black), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {

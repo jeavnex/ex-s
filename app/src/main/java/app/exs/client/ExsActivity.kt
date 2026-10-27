@@ -201,6 +201,7 @@ class ExsActivity : ComponentActivity() {
     private fun play(index: Int) {
         val detail = state.detail ?: return
         addLog("Запуск плеера #$index: ${detail.card.title}")
+        if (!isTelevision) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
         state = state.copy(screen = AppScreen.PLAYER, playerReady = false, loading = true, error = null)
         command("play", json("url" to detail.card.url, "player" to index))
     }

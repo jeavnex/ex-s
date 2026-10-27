@@ -16,6 +16,11 @@ object DomainPolicy {
         "miceonme.com",
         "myangular.life",
         "counter.yadro.ru",
+        "traffer.net",
+        "traffer.biz",
+        "trvid1.cc",
+        "huffson-delivery.com",
+        "hg-delivery.b-cdn.net",
     )
 
     fun isAllowedTopLevel(url: String): Boolean {

@@ -19,6 +19,9 @@ class DomainPolicyTest {
         assertTrue(DomainPolicy.isBlockedResource("https://track.realanduse.com/a.js"))
         assertTrue(DomainPolicy.isBlockedResource("https://777ua.com.ua/register/"))
         assertFalse(DomainPolicy.isBlockedResource("https://distribrey.com/load-xml/?roll=pre"))
+        assertTrue(DomainPolicy.isBlockedResource("https://vast.strm-3705.trvid1.cc/api/vast"))
+        assertTrue(DomainPolicy.isBlockedResource("https://v1.traffer.net/video/16/16652.mp4"))
+        assertTrue(DomainPolicy.isBlockedResource("https://hg-delivery.b-cdn.net/57495/EVOKING_DE.MP4"))
         assertFalse(DomainPolicy.isBlockedResource("https://ex-fs.net/app.js"))
     }
 }

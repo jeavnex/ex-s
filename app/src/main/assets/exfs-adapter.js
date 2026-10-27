@@ -149,6 +149,7 @@
     iframe.setAttribute('allowfullscreen', '');
     iframe.setAttribute('data-exs-parent', panel.id || '');
     iframe.classList.add('exs-frame-active');
+    iframe.classList.add('act-fullscreen');
     var ancestor = iframe.parentElement;
     while (ancestor && ancestor !== document.body) {
       ancestor.classList.add('exs-frame-ancestor');
@@ -160,6 +161,7 @@
     var provider = absolute(iframe.getAttribute('src')) || 'встроенный iframe без src';
     emit('diagnostic', { message: 'Открыт ' + (text(trigger) || ('плеер ' + panelIndex)) + ': ' + provider });
     iframe.focus();
+    try { iframe.contentWindow.postMessage({ event: 'fullScreen', enter: true }, '*'); } catch (_) {}
     function inspectInnerVideo() {
       try {
         var inner = iframe.contentDocument;
@@ -209,6 +211,8 @@
     document.querySelectorAll('iframe.exs-frame-active').forEach(function (frame) {
       try { var video = frame.contentDocument && frame.contentDocument.querySelector('video'); if (video) video.pause(); } catch (_) {}
       frame.classList.remove('exs-frame-active');
+      frame.classList.remove('act-fullscreen');
+      try { frame.contentWindow.postMessage({ event: 'fullScreen', enter: false }, '*'); } catch (_) {}
     });
     document.querySelectorAll('.exs-frame-ancestor').forEach(function (node) { node.classList.remove('exs-frame-ancestor'); });
     var video = document.querySelector('video'); if (video) video.pause();

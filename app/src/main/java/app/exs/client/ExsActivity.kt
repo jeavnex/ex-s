@@ -302,7 +302,9 @@ class ExsActivity : ComponentActivity() {
                 }
                 return true
             }
-            if (!authEditing) {
+            // The TV keyboard has its own window. Once it is dismissed, arrows
+            // must navigate form fields even if it consumed the Back key itself.
+            run {
                 val action = when (event.keyCode) {
                     KeyEvent.KEYCODE_DPAD_UP -> "previous"
                     KeyEvent.KEYCODE_DPAD_DOWN -> "next"

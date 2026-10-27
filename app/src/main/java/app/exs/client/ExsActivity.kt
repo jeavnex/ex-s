@@ -3,10 +3,13 @@ package app.exs.client
 import android.annotation.SuppressLint
 import android.app.UiModeManager
 import android.content.Context
+import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
 import android.graphics.Color
+import android.net.Uri
 import android.net.http.SslError
+import android.os.Build
 import android.os.Bundle
 import android.view.KeyEvent
 import android.view.View
@@ -27,6 +30,9 @@ import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
 import org.json.JSONArray
 import org.json.JSONObject
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 
 class ExsActivity : ComponentActivity() {
     private var state by mutableStateOf(ExsState())
@@ -59,8 +65,9 @@ class ExsActivity : ComponentActivity() {
                     view.isFocusableInTouchMode = surface
                     if (surface) view.requestFocus()
                 })
-                if (state.screen == AppScreen.CATALOG || state.screen == AppScreen.DETAIL) {
-                    ExsApp(state, ::openSection, ::openDetail, ::search, ::play, ::handleBack, ::openLogin, ::refresh) { checkUpdates(true) }
+                if (state.screen == AppScreen.CATALOG || state.screen == AppScreen.DETAIL || state.screen == AppScreen.DIAGNOSTICS) {
+                    ExsApp(state, ::openSection, ::openDetail, ::search, ::play, ::handleBack, ::openLogin, ::refresh,
+                        { checkUpdates(true) }, ::openDiagnostics, ::clearLogs, ::shareLogs)
                 }
                 if (state.screen == AppScreen.PLAYER) {
                     PlayerChrome(state, ::handleBack, { playerAction("toggle", KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) },
@@ -68,6 +75,7 @@ class ExsActivity : ComponentActivity() {
                 }
             }
         }
+        addLog("Запуск EX-S ${BuildConfig.VERSION_NAME}; Android ${Build.VERSION.RELEASE}; SDK ${Build.VERSION.SDK_INT}; TV=$isTelevision")
         web.loadUrl(SITE)
         checkUpdates(false)
     }
@@ -118,15 +126,18 @@ class ExsActivity : ComponentActivity() {
 
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
                 if (!DomainPolicy.isBlockedResource(request.url.toString())) return null
+                runOnUiThread { addLog("Заблокирован ресурс ${safeUrl(request.url.toString())}") }
                 return WebResourceResponse("text/plain", "UTF-8", 204, "No Content", emptyMap(), java.io.ByteArrayInputStream(ByteArray(0)))
             }
 
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
                 adapterReady = false
+                addLog("Страница начала загрузку: ${safeUrl(url)}")
                 if (state.screen == AppScreen.PLAYER) state = state.copy(playerReady = false, loading = true)
             }
             override fun onPageFinished(view: WebView, url: String?) {
                 if (url != null && DomainPolicy.isAllowedTopLevel(url)) {
+                    addLog("Страница загружена: ${safeUrl(url)}")
                     view.evaluateJavascript(assets.open("exfs-adapter.js").bufferedReader().use { it.readText() }, null)
                     CookieManager.getInstance().flush()
                 }
@@ -135,11 +146,16 @@ class ExsActivity : ComponentActivity() {
                 handler.cancel(); state = state.copy(loading = false, error = "Ошибка защищённого соединения с EX-FS.")
             }
             override fun onReceivedError(view: WebView, request: WebResourceRequest, error: WebResourceError) {
+                addLog("WebView ошибка ${error.errorCode}: ${safeUrl(request.url.toString())} — ${error.description}")
                 if (request.isForMainFrame) state = state.copy(loading = false, error = "EX-FS сейчас не отвечает. Проверьте сеть или доступ из вашей страны.")
             }
         }
         web.webChromeClient = object : WebChromeClient() {
             override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message?): Boolean = false
+            override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                addLog("JS ${message.messageLevel()}: ${message.message()}")
+                return true
+            }
             override fun onShowCustomView(view: View, callback: CustomViewCallback) {
                 if (customView != null) { callback.onCustomViewHidden(); return }
                 customView = view
@@ -152,11 +168,13 @@ class ExsActivity : ComponentActivity() {
     }
 
     private fun command(name: String, payload: JSONObject = JSONObject()) {
-        if (!adapterReady) { pendingCommand = name to payload; return }
+        addLog("Команда: $name")
+        if (!adapterReady) { pendingCommand = name to payload; addLog("Команда ожидает загрузки адаптера"); return }
         web.evaluateJavascript("window.EXSApp&&window.EXSApp.command(${JSONObject.quote(name)},${payload});", null)
     }
 
     private fun openSection(section: CatalogSection) {
+        addLog("Раздел: ${section.label}")
         state = state.copy(section = section, query = "", cards = emptyList(), loading = true, error = null)
         command("catalog", json("path" to section.path, "query" to ""))
     }
@@ -165,15 +183,27 @@ class ExsActivity : ComponentActivity() {
         command("catalog", json("path" to state.section.path, "query" to query.trim().take(120)))
     }
     private fun openDetail(card: MediaCard) {
+        addLog("Карточка: ${card.title}")
         state = state.copy(screen = AppScreen.DETAIL, detail = MediaDetail(card), loading = true, error = null)
         command("detail", json("url" to card.url))
     }
     private fun play(index: Int) {
         val detail = state.detail ?: return
+        addLog("Запуск плеера #$index: ${detail.card.title}")
         state = state.copy(screen = AppScreen.PLAYER, playerReady = false, loading = true, error = null)
         command("play", json("url" to detail.card.url, "player" to index))
     }
     private fun openLogin() { state = state.copy(screen = AppScreen.LOGIN, loading = false, error = null); command("login") }
+    private fun openDiagnostics() { addLog("Открыта диагностика"); state = state.copy(screen = AppScreen.DIAGNOSTICS, loading = false, error = null) }
+    private fun clearLogs() { state = state.copy(logs = emptyList()); addLog("Журнал очищен") }
+    private fun shareLogs() {
+        val report = diagnosticReport()
+        startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_SUBJECT, "EX-S ${BuildConfig.VERSION_NAME} — диагностика")
+            putExtra(Intent.EXTRA_TEXT, report)
+        }, "Отправить журнал EX-S"))
+    }
     private fun refresh() {
         state = state.copy(error = null, loading = true)
         if (!adapterReady) web.reload() else when (state.screen) {
@@ -181,6 +211,7 @@ class ExsActivity : ComponentActivity() {
             AppScreen.DETAIL -> state.detail?.let { command("detail", json("url" to it.card.url)) }
             AppScreen.PLAYER -> state.detail?.let { command("play", json("url" to it.card.url, "player" to 0)) }
             AppScreen.LOGIN -> command("login")
+            AppScreen.DIAGNOSTICS -> Unit
         }
     }
     private fun handleBack() {
@@ -193,6 +224,7 @@ class ExsActivity : ComponentActivity() {
             }
             AppScreen.LOGIN -> { command("closeLogin"); state = state.copy(screen = AppScreen.CATALOG, loading = false, error = null); openSection(state.section) }
             AppScreen.DETAIL -> state = state.copy(screen = AppScreen.CATALOG, detail = null, loading = false, error = null)
+            AppScreen.DIAGNOSTICS -> state = state.copy(screen = AppScreen.CATALOG, loading = false, error = null)
             AppScreen.CATALOG -> moveTaskToBack(true)
         }
     }
@@ -217,7 +249,9 @@ class ExsActivity : ComponentActivity() {
     }
 
     private fun onSiteEvent(event: JSONObject) {
-        when (event.optString("type")) {
+        val type = event.optString("type")
+        if (type != "catalog") addLog("Событие сайта: $type")
+        when (type) {
             "ready" -> {
                 adapterReady = true
                 val pending = pendingCommand; pendingCommand = null
@@ -232,7 +266,8 @@ class ExsActivity : ComponentActivity() {
                 val card = old.copy(title = event.optString("title", old.title), poster = event.optString("poster", old.poster), meta = event.optString("meta", old.meta))
                 state = state.copy(detail = MediaDetail(card, event.optString("originalTitle"), event.optString("description"), event.optString("facts"), event.optString("rating"), players), loading = false, error = null)
             }
-            "playerReady" -> state = state.copy(playerReady = true, loading = false, error = null)
+            "playerReady" -> { addLog("Плеер готов: ${safeUrl(event.optString("provider"))}"); state = state.copy(playerReady = true, loading = false, error = null) }
+            "diagnostic" -> addLog("Плеер: ${event.optString("message")}")
             "auth" -> state = state.copy(loggedIn = event.optBoolean("loggedIn"), accountName = event.optString("displayName"))
             "loginComplete" -> { state = state.copy(screen = AppScreen.CATALOG, loggedIn = true, loading = true); openSection(state.section) }
             "error" -> state = state.copy(loading = false, error = event.optString("message", "Не удалось загрузить данные."))
@@ -270,6 +305,22 @@ class ExsActivity : ComponentActivity() {
     private fun applyImmersive() {
         window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_FULLSCREEN or View.SYSTEM_UI_FLAG_HIDE_NAVIGATION or
             View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY or View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+    }
+    private fun addLog(message: String) {
+        val time = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
+        val safe = message.replace(Regex("https?://[^\\s\\\"'<>]+")) { safeUrl(it.value) }.take(700)
+        state = state.copy(logs = (state.logs + "[$time] $safe").takeLast(300))
+    }
+    private fun safeUrl(value: String?): String {
+        if (value.isNullOrBlank()) return "—"
+        return runCatching { Uri.parse(value).let { "${it.scheme}://${it.host}${it.path.orEmpty()}" } }.getOrDefault("неизвестный адрес")
+    }
+    private fun diagnosticReport() = buildString {
+        appendLine("EX-S ${BuildConfig.VERSION_NAME}")
+        appendLine("Android ${Build.VERSION.RELEASE}; SDK ${Build.VERSION.SDK_INT}; TV=$isTelevision")
+        appendLine("Экран: ${state.screen}; раздел: ${state.section.label}")
+        appendLine("--- ЖУРНАЛ ---")
+        append(state.logs.joinToString("\n"))
     }
     private fun JSONArray?.objects(): List<JSONObject> = if (this == null) emptyList() else (0 until length()).mapNotNull { optJSONObject(it) }
     private fun json(vararg fields: Pair<String, Any?>) = JSONObject().apply { fields.forEach { put(it.first, it.second) } }

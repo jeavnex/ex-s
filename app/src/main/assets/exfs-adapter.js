@@ -125,8 +125,9 @@
     var panels = Array.from(document.querySelectorAll('.tab-pane'));
     var panel = panels[Number(panelIndex)] || panels.find(function (p) { return p.querySelector('iframe[src]'); }) || panels[0];
     if (!panel) { error('На странице не найден видеоплеер.'); return; }
+    var trigger = panel.id && document.querySelector('a[href="#' + panel.id + '"]');
+    if (trigger) trigger.click();
     panels.forEach(function (p) { p.classList.remove('exs-player-active'); });
-    document.body.appendChild(panel);
     panel.classList.add('exs-player-active');
     var viewport = document.querySelector('meta[name="viewport"]') || document.head.appendChild(document.createElement('meta'));
     viewport.name = 'viewport';
@@ -139,8 +140,17 @@
       '.exs-player-active iframe{display:block!important;position:absolute!important;inset:0!important;border:0!important;margin:0!important;padding:0!important;width:100%!important;height:100%!important;max-width:none!important;max-height:none!important;transform:none!important}' +
       '[class*="popup"],[class*="popunder"],[id*="popup"],[id*="advert"]{display:none!important}';
     var iframe = panel.querySelector('iframe');
-    if (iframe) { iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media'); iframe.setAttribute('allowfullscreen', ''); iframe.focus(); }
-    setTimeout(function () { emit('playerReady'); }, 250);
+    if (!iframe) { error('В выбранной вкладке нет видеоплеера.'); return; }
+    var lazySource = iframe.getAttribute('data-src') || iframe.getAttribute('data-lazy-src');
+    if (!iframe.getAttribute('src') && lazySource) iframe.setAttribute('src', lazySource);
+    iframe.setAttribute('allow', 'autoplay; fullscreen; encrypted-media; picture-in-picture');
+    iframe.setAttribute('allowfullscreen', '');
+    iframe.addEventListener('load', function () {
+      emit('diagnostic', { message: 'iframe загружен: ' + absolute(iframe.getAttribute('src')) });
+    }, { once: true });
+    emit('diagnostic', { message: 'Открыт ' + (text(trigger) || ('плеер ' + panelIndex)) + ': ' + absolute(iframe.getAttribute('src')) });
+    iframe.focus();
+    setTimeout(function () { emit('playerReady', { provider: absolute(iframe.getAttribute('src')) }); }, 500);
   }
   function play(data) {
     var url = absolute(data.url);

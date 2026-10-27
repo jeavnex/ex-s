@@ -16,7 +16,6 @@ object DomainPolicy {
         "miceonme.com",
         "myangular.life",
         "counter.yadro.ru",
-        "distribrey.com",
     )
 
     fun isAllowedTopLevel(url: String): Boolean {

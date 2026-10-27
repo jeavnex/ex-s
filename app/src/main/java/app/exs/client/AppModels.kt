@@ -1,6 +1,6 @@
 package app.exs.client
 
-enum class AppScreen { CATALOG, DETAIL, PLAYER, LOGIN }
+enum class AppScreen { CATALOG, DETAIL, PLAYER, LOGIN, DIAGNOSTICS }
 
 enum class UpdateStatus { CHECKING, CURRENT, OUTDATED, UNAVAILABLE }
 
@@ -92,4 +92,5 @@ data class ExsState(
     val playerReady: Boolean = false,
     val updateStatus: UpdateStatus = UpdateStatus.CHECKING,
     val latestVersion: String = "",
+    val logs: List<String> = emptyList(),
 )

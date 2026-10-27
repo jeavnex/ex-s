@@ -14,6 +14,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.MaterialTheme
@@ -31,6 +32,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -56,6 +59,9 @@ fun ExsApp(
     onLogin: () -> Unit,
     onRefresh: () -> Unit,
     onUpdate: () -> Unit,
+    onDiagnostics: () -> Unit,
+    onClearLogs: () -> Unit,
+    onShareLogs: () -> Unit,
 ) {
     MaterialTheme {
         Box(
@@ -64,8 +70,9 @@ fun ExsApp(
             )
         ) {
             when (state.screen) {
-                AppScreen.CATALOG -> CatalogScreen(state, onSection, onOpen, onSearch, onLogin, onRefresh, onUpdate)
+                AppScreen.CATALOG -> CatalogScreen(state, onSection, onOpen, onSearch, onLogin, onRefresh, onUpdate, onDiagnostics)
                 AppScreen.DETAIL -> DetailScreen(state, onPlay, onBack)
+                AppScreen.DIAGNOSTICS -> DiagnosticsScreen(state, onBack, onClearLogs, onShareLogs)
                 AppScreen.PLAYER, AppScreen.LOGIN -> Unit
             }
             if (state.loading && state.screen != AppScreen.PLAYER) LoadingLayer()
@@ -83,11 +90,12 @@ private fun CatalogScreen(
     onLogin: () -> Unit,
     onRefresh: () -> Unit,
     onUpdate: () -> Unit,
+    onDiagnostics: () -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val compact = maxWidth < 700.dp || maxHeight < 500.dp
-        if (compact) PhoneCatalog(state, onSection, onOpen, onSearch, onLogin, onRefresh, onUpdate)
-        else TvCatalog(state, onSection, onOpen, onSearch, onLogin, onRefresh, onUpdate)
+        if (compact) PhoneCatalog(state, onSection, onOpen, onSearch, onLogin, onRefresh, onUpdate, onDiagnostics)
+        else TvCatalog(state, onSection, onOpen, onSearch, onLogin, onRefresh, onUpdate, onDiagnostics)
     }
 }
 
@@ -100,6 +108,7 @@ private fun PhoneCatalog(
     onLogin: () -> Unit,
     onRefresh: () -> Unit,
     onUpdate: () -> Unit,
+    onDiagnostics: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.weight(1f).padding(start = 16.dp, top = 14.dp, end = 16.dp)) {
@@ -108,6 +117,8 @@ private fun PhoneCatalog(
                 CompactAction(if (state.loggedIn) "Аккаунт" else "Войти", onLogin)
                 Spacer(Modifier.width(7.dp))
                 VersionBadge(state, onUpdate)
+                Spacer(Modifier.width(7.dp))
+                CompactAction("⚙", onDiagnostics)
             }
             Spacer(Modifier.height(14.dp))
             SearchBox(state.query, onSearch)
@@ -141,9 +152,10 @@ private fun TvCatalog(
     onLogin: () -> Unit,
     onRefresh: () -> Unit,
     onUpdate: () -> Unit,
+    onDiagnostics: () -> Unit,
 ) {
     Row(Modifier.fillMaxSize().padding(start = 26.dp, top = 22.dp, end = 28.dp, bottom = 20.dp)) {
-        TvNavigation(state, onSection, onLogin, onUpdate)
+        TvNavigation(state, onSection, onLogin, onUpdate, onDiagnostics)
         Spacer(Modifier.width(26.dp))
         Column(Modifier.weight(1f).fillMaxHeight()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -179,7 +191,7 @@ private fun Brand(modifier: Modifier = Modifier, compact: Boolean = false) {
 }
 
 @Composable
-private fun TvNavigation(state: ExsState, onSection: (CatalogSection) -> Unit, onLogin: () -> Unit, onUpdate: () -> Unit) {
+private fun TvNavigation(state: ExsState, onSection: (CatalogSection) -> Unit, onLogin: () -> Unit, onUpdate: () -> Unit, onDiagnostics: () -> Unit) {
     val first = remember { FocusRequester() }
     Column(Modifier.width(180.dp).fillMaxHeight()) {
         Brand(Modifier.padding(start = 10.dp, bottom = 24.dp))
@@ -206,6 +218,8 @@ private fun TvNavigation(state: ExsState, onSection: (CatalogSection) -> Unit, o
         NavItem(if (state.loggedIn) "●" else "○", if (state.loggedIn) "Аккаунт" else "Войти", false, onLogin)
         Spacer(Modifier.height(6.dp))
         VersionBadge(state, onUpdate)
+        Spacer(Modifier.height(6.dp))
+        NavItem("⚙", "Диагностика", false, onDiagnostics)
     }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
 }
@@ -429,6 +443,43 @@ private fun PlayerButtons(detail: MediaDetail, onPlay: (Int) -> Unit) {
 }
 
 @Composable
+private fun DiagnosticsScreen(state: ExsState, onBack: () -> Unit, onClear: () -> Unit, onShare: () -> Unit) {
+    val clipboard = LocalClipboardManager.current
+    val report = remember(state.logs) {
+        buildString {
+            appendLine("EX-S ${BuildConfig.VERSION_NAME}")
+            appendLine("Экран: ${state.screen}; раздел: ${state.section.label}")
+            appendLine("--- ЖУРНАЛ ---")
+            append(state.logs.joinToString("\n"))
+        }
+    }
+    Column(Modifier.fillMaxSize().padding(18.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            FocusPill("← Назад", false, onBack, compact = true)
+            Text("Диагностика EX-S", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.Bold)
+        }
+        Spacer(Modifier.height(12.dp))
+        Text("Откройте фильм и плеер, вернитесь сюда, затем нажмите «Копировать» или «Отправить». Пароли и cookies в журнал не записываются.", color = Muted, fontSize = 13.sp)
+        Spacer(Modifier.height(12.dp))
+        Box(Modifier.weight(1f).fillMaxWidth().background(Color(0xCC050B13), RoundedCornerShape(12.dp)).padding(12.dp)) {
+            SelectionContainer {
+                Text(
+                    if (state.logs.isEmpty()) "Журнал пока пуст." else report,
+                    color = Color(0xFFD8E4F0), fontSize = 11.sp, lineHeight = 16.sp,
+                    modifier = Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            FocusPill("Копировать", true, { clipboard.setText(AnnotatedString(report)) }, compact = true)
+            FocusPill("Отправить", false, onShare, compact = true)
+            FocusPill("Очистить", false, onClear, compact = true)
+        }
+    }
+}
+
+@Composable
 fun PlayerChrome(
     state: ExsState,
     onBack: () -> Unit,
@@ -437,6 +488,7 @@ fun PlayerChrome(
     onSeekForward: () -> Unit,
     onRotate: () -> Unit,
 ) {
+    var chromeVisible by remember(state.detail?.card?.url) { mutableStateOf(true) }
     Box(Modifier.fillMaxSize()) {
         if (!state.playerReady) {
             Column(Modifier.fillMaxSize().background(Color.Black), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
@@ -446,16 +498,21 @@ fun PlayerChrome(
                 Text("Страница сайта скрыта", color = Muted, fontSize = 13.sp)
             }
         }
-        Row(
-            Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Color(0xB307111F)).padding(horizontal = 12.dp, vertical = 9.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(9.dp),
-        ) {
-            PlayerControl("← Назад", onBack)
-            Text(state.detail?.card?.title.orEmpty(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            PlayerControl("↻ Повернуть", onRotate)
+        if (chromeVisible) {
+            Row(
+                Modifier.align(Alignment.TopCenter).fillMaxWidth().background(Color(0xB307111F)).padding(horizontal = 12.dp, vertical = 9.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                PlayerControl("← Назад", onBack)
+                Text(state.detail?.card?.title.orEmpty(), color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                PlayerControl("Скрыть", { chromeVisible = false })
+                PlayerControl("↻ Повернуть", onRotate)
+            }
+        } else {
+            Box(Modifier.align(Alignment.TopEnd).padding(8.dp)) { PlayerControl("Меню", { chromeVisible = true }) }
         }
-        if (state.playerReady) {
+        if (state.playerReady && chromeVisible) {
             Row(
                 Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp).background(Color(0xD9101D2D), RoundedCornerShape(16.dp)).padding(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),

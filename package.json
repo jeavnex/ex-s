@@ -1,0 +1,6 @@
+{
+  "name": "ex-s-adapter-tests",
+  "private": true,
+  "scripts": { "test": "node --check app/src/main/assets/exfs-adapter.js && node --check app/src/main/assets/player-frame.js && node tools/test-player.cjs && node tools/test-catalog-auth.cjs && node tools/test-frame.cjs" },
+  "devDependencies": { "linkedom": "0.18.12" }
+}

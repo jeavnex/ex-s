@@ -26,8 +26,8 @@ jobs:
       - name: Тесты, lint и универсальный debug APK
         shell: bash
         run: |
-          node --check app/src/main/assets/exfs-adapter.js
-          node tools/test-player.cjs
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm test
           set +e
           ./gradlew --no-daemon testDebugUnitTest lintDebug assembleDebug 2>&1 | tee build.log
           status=${PIPESTATUS[0]}

@@ -31,8 +31,8 @@ jobs:
           EXS_KEY_ALIAS: ${{ secrets.EXS_KEY_ALIAS }}
           EXS_KEY_PASSWORD: ${{ secrets.EXS_KEY_PASSWORD }}
         run: |
-          node --check app/src/main/assets/exfs-adapter.js
-          node tools/test-player.cjs
+          npm ci --ignore-scripts --no-audit --no-fund
+          npm test
           ./gradlew --no-daemon testReleaseUnitTest lintRelease assembleRelease
       - name: Подготовить файлы релиза
         run: |

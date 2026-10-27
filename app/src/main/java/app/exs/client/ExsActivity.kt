@@ -45,6 +45,9 @@ class ExsActivity : ComponentActivity() {
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private var fullscreenTapPending = false
+    private var closingPlayback = false
+    private var authEditing = false
+    private var customContainer: FrameLayout? = null
     private var adapterReady = false
     private var pendingCommand: Pair<String, JSONObject>? = null
     private val recentLogs = mutableMapOf<String, Long>()
@@ -82,12 +85,13 @@ class ExsActivity : ComponentActivity() {
                 if (state.screen == AppScreen.CATALOG || state.screen == AppScreen.DETAIL || state.screen == AppScreen.DIAGNOSTICS) {
                     savedScreens.SaveableStateProvider("${state.screen}:${state.section}") {
                     ExsApp(state, ::openSection, ::openDetail, ::search, ::play, ::handleBack, ::openLogin, ::refresh,
-                        { checkUpdates(true) }, ::openDiagnostics, ::clearLogs, ::shareLogs)
+                        { checkUpdates(true) }, ::openDiagnostics, ::clearLogs, ::shareLogs, ::loadMore)
                     }
                 }
                 if (state.screen == AppScreen.PLAYER) {
                     PlayerChrome(state, ::handleBack, ::toggleOrientation)
                 }
+                if (state.screen == AppScreen.LOGIN) LoginChrome(::handleBack)
             }
         }
         addLog("Запуск EX-S ${BuildConfig.VERSION_NAME}; Android ${Build.VERSION.RELEASE}; SDK ${Build.VERSION.SDK_INT}; TV=$isTelevision")
@@ -127,6 +131,10 @@ class ExsActivity : ComponentActivity() {
             settings.userAgentString += " EX-S/${BuildConfig.VERSION_NAME}" + if (isTelevision) " Android TV" else ""
         }
         CookieManager.getInstance().apply { setAcceptCookie(true); setAcceptThirdPartyCookies(web, true) }
+        if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(web,
+                assets.open("player-frame.js").bufferedReader().use { it.readText() }, setOf("*"))
+        }
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             state = state.copy(loading = false, error = "Обновите Android System WebView — он нужен для безопасной работы EX-S.")
             return
@@ -184,12 +192,24 @@ class ExsActivity : ComponentActivity() {
                 if (customView != null) { callback.onCustomViewHidden(); return }
                 customView = view
                 customViewCallback = callback
-                (window.decorView as ViewGroup).addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                val container = FrameLayout(this@ExsActivity)
+                container.setBackgroundColor(Color.BLACK)
+                container.addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                container.addView(android.widget.Button(this@ExsActivity).apply {
+                    text = "← Назад"
+                    alpha = .8f
+                    isFocusable = !isTelevision
+                    setOnClickListener { handleBack() }
+                }, FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT, android.view.Gravity.TOP or android.view.Gravity.START))
+                customContainer = container
+                (window.decorView as ViewGroup).addView(container, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
                 if (!isTelevision) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
                 addLog("Оригинальный плеер: нативный fullscreen открыт; поворот датчиком разрешён")
                 applyImmersive()
             }
-            override fun onHideCustomView() = hideCustomView()
+            override fun onHideCustomView() {
+                if (state.screen == AppScreen.PLAYER && !closingPlayback) handleBack() else hideCustomView()
+            }
         }
     }
 
@@ -201,12 +221,17 @@ class ExsActivity : ComponentActivity() {
 
     private fun openSection(section: CatalogSection) {
         addLog("Раздел: ${section.label}")
-        state = state.copy(section = section, detail = null, query = "", cards = emptyList(), loading = true, error = null)
+        state = state.copy(section = section, detail = null, query = "", cards = emptyList(), nextPage = "", loadingMore = false, loading = true, error = null)
         command("catalog", json("path" to section.path, "query" to ""))
     }
     private fun search(query: String) {
-        state = state.copy(query = query, loading = true, error = null)
+        state = state.copy(query = query, nextPage = "", loadingMore = false, loading = true, error = null)
         command("catalog", json("path" to state.section.path, "query" to query.trim().take(120)))
+    }
+    private fun loadMore() {
+        if (state.nextPage.isBlank() || state.loadingMore || state.loading) return
+        state = state.copy(loadingMore = true, error = null)
+        command("catalog", json("path" to state.section.path, "query" to state.query, "pageUrl" to state.nextPage))
     }
     private fun openDetail(card: MediaCard) {
         addLog("Карточка: ${card.title}")
@@ -221,7 +246,7 @@ class ExsActivity : ComponentActivity() {
         state = state.copy(screen = AppScreen.PLAYER, playerReady = false, loading = true, error = null)
         command("play", json("url" to detail.card.url, "player" to index))
     }
-    private fun openLogin() { state = state.copy(screen = AppScreen.LOGIN, loading = false, error = null); command("login") }
+    private fun openLogin() { authEditing = false; state = state.copy(screen = AppScreen.LOGIN, loading = false, error = null); command("login") }
     private fun openDiagnostics() { addLog("Открыта диагностика"); state = state.copy(screen = AppScreen.DIAGNOSTICS, loading = false, error = null) }
     private fun clearLogs() { state = state.copy(logs = emptyList()); addLog("Журнал очищен") }
     private fun shareLogs() {
@@ -245,11 +270,19 @@ class ExsActivity : ComponentActivity() {
     private fun handleBack() {
         when (state.screen) {
             AppScreen.PLAYER -> {
+                if (closingPlayback) return
+                closingPlayback = true
                 fullscreenTapPending = false
                 if (customView != null) hideCustomView()
                 command("closePlayer")
                 if (!isTelevision) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
                 state = state.copy(screen = AppScreen.DETAIL, playerReady = false, loading = false, error = null)
+                // Navigation destroys every provider iframe, even cross-origin ones
+                // that cannot be paused through the parent's DOM.
+                adapterReady = false
+                pendingCommand = null
+                web.loadUrl(SITE)
+                closingPlayback = false
             }
             AppScreen.LOGIN -> { command("closeLogin"); state = state.copy(screen = AppScreen.CATALOG, loading = false, error = null); openSection(state.section) }
             AppScreen.DETAIL -> state = state.copy(screen = AppScreen.CATALOG, loading = false, error = null)
@@ -261,6 +294,27 @@ class ExsActivity : ComponentActivity() {
     // Fullscreen WebView owns a separate surface: Activity.onKeyDown is not
     // guaranteed to see its keys. Handle media actions before dispatch to it.
     private fun handlePlayerKey(event: KeyEvent): Boolean {
+        if (state.screen == AppScreen.LOGIN && isTelevision) {
+            if (authEditing && event.keyCode == KeyEvent.KEYCODE_BACK) {
+                if (event.action == KeyEvent.ACTION_UP) {
+                    (getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).hideSoftInputFromWindow(web.windowToken, 0)
+                    authEditing = false
+                }
+                return true
+            }
+            if (!authEditing) {
+                val action = when (event.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_UP -> "previous"
+                    KeyEvent.KEYCODE_DPAD_DOWN -> "next"
+                    KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_ENTER -> "activate"
+                    else -> null
+                }
+                if (action != null) {
+                    if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) command("loginKey", json("action" to action))
+                    return true
+                }
+            }
+        }
         if (state.screen == AppScreen.PLAYER) {
             if (event.keyCode == KeyEvent.KEYCODE_BACK) {
                 if (event.action == KeyEvent.ACTION_UP) handleBack()
@@ -322,9 +376,13 @@ class ExsActivity : ComponentActivity() {
                 val pending = pendingCommand; pendingCommand = null
                 if (pending != null) command(pending.first, pending.second) else if (state.cards.isEmpty() && state.screen == AppScreen.CATALOG) openSection(state.section)
             }
-            "catalog" -> state = state.copy(cards = event.optJSONArray("items").objects().map {
+            "catalog" -> {
+                val cards = event.optJSONArray("items").objects().map {
                 MediaCard(it.optString("url"), it.optString("title"), it.optString("poster"), it.optString("meta"), it.optString("badge"))
-            }, loading = false, error = null)
+                }
+                state = state.copy(cards = if (event.optBoolean("append")) (state.cards + cards).distinctBy { it.url } else cards,
+                    nextPage = event.optString("nextPage"), loadingMore = false, loading = false, error = null)
+            }
             "detail" -> {
                 val old = state.detail?.card ?: return
                 val players = event.optJSONArray("players").objects().mapIndexed { i, p -> PlayerChoice(p.optInt("index", i), p.optString("label", "Плеер ${i + 1}")) }
@@ -353,13 +411,25 @@ class ExsActivity : ComponentActivity() {
                 }
             }
             "diagnostic" -> addLog("Плеер: ${event.optString("message")}")
-            "auth" -> state = state.copy(loggedIn = event.optBoolean("loggedIn"), accountName = event.optString("displayName"))
+            "authInput" -> {
+                authEditing = true
+                web.postDelayed({ (getSystemService(Context.INPUT_METHOD_SERVICE) as android.view.inputmethod.InputMethodManager).showSoftInput(web, android.view.inputmethod.InputMethodManager.SHOW_IMPLICIT) }, 100)
+            }
+            "auth" -> {
+                state = state.copy(loggedIn = event.optBoolean("loggedIn"), accountName = event.optString("displayName"))
+                if (state.screen == AppScreen.LOGIN && state.loggedIn) {
+                    CookieManager.getInstance().flush()
+                    web.evaluateJavascript("window.EXSApp&&window.EXSApp.command('closeLogin',{});", null)
+                    state = state.copy(screen = AppScreen.CATALOG, loading = true)
+                    openSection(state.section)
+                }
+            }
             "loginComplete" -> { state = state.copy(screen = AppScreen.CATALOG, loggedIn = true, loading = true); openSection(state.section) }
-            "error" -> state = state.copy(loading = false, error = event.optString("message", "Не удалось загрузить данные."))
+            "error" -> state = state.copy(loading = false, loadingMore = false, error = event.optString("message", "Не удалось загрузить данные."))
         }
     }
 
-    override fun onPause() { if (::web.isInitialized) { web.onPause(); CookieManager.getInstance().flush() }; super.onPause() }
+    override fun onPause() { if (::web.isInitialized) { if (state.screen == AppScreen.PLAYER) command("pausePlayer"); web.onPause(); CookieManager.getInstance().flush() }; super.onPause() }
     override fun onResume() { super.onResume(); if (::web.isInitialized) web.onResume() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) applyImmersive() }
     override fun onConfigurationChanged(newConfig: Configuration) {
@@ -387,7 +457,10 @@ class ExsActivity : ComponentActivity() {
 
     private fun hideCustomView() {
         val view = customView ?: return
-        (view.parent as? ViewGroup)?.removeView(view)
+        val container = customContainer
+        if (container != null) (container.parent as? ViewGroup)?.removeView(container)
+        else (view.parent as? ViewGroup)?.removeView(view)
+        customContainer = null
         customView = null
         customViewCallback?.onCustomViewHidden()
         customViewCallback = null

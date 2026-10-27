@@ -10,6 +10,7 @@
   var TRANSPARENT_POSTER = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
   var cancelAutostart = null;
   var remoteControl = null;
+  var catalogRequest = 0;
   function emit(type, data) {
     try { window.EXSBridge.postMessage(JSON.stringify(Object.assign({ type: type }, data || {}))); } catch (_) {}
   }
@@ -51,23 +52,37 @@
   }
   function cardsFrom(doc, base) {
     var seen = new Set();
-    return Array.from(doc.querySelectorAll('a.MiniPostPoster')).map(function (a) { return cardFrom(a, base); })
+    var searchCards = Array.from(doc.querySelectorAll('.srx-item')).map(function (box) {
+      var anchor = box.querySelector('.srx-title a');
+      var image = box.querySelector('img');
+      return { url: absolute(anchor && anchor.getAttribute('href'), base), title: cleanTitle(text(anchor)),
+        poster: posterUrl(image && image.getAttribute('src'), base), meta: text(box.querySelector('.srx-orig, .srx-meta')), badge: '' };
+    });
+    return searchCards.concat(Array.from(doc.querySelectorAll('a.MiniPostPoster')).map(function (a) { return cardFrom(a, base); }))
       .filter(function (item) { if (!item.url || !item.title || seen.has(item.url)) return false; seen.add(item.url); return true; });
   }
   async function catalog(data) {
+    var request = ++catalogRequest;
     try {
       var query = String(data.query || '').trim();
       var path = String(data.path || '/');
-      var target = query ? '/index.php?do=search&subaction=search&story=' + encodeURIComponent(query) : path;
+      var target = data.pageUrl || (query ? '/index.php?do=search&subaction=search&story=' + encodeURIComponent(query) : path);
+      if (new URL(target, location.origin).origin !== location.origin) throw new Error('Недопустимый адрес страницы каталога');
       var doc = await fetchDoc(target);
       var items = cardsFrom(doc, absolute(target, location.origin));
-      if (query && !items.length) {
-        var fallback = cardsFrom(await fetchDoc(path), absolute(path, location.origin));
-        var needle = query.toLocaleLowerCase('ru');
-        items = fallback.filter(function (item) { return item.title.toLocaleLowerCase('ru').includes(needle); });
+      var next = doc.querySelector('.nav-next a, a[rel="next"]');
+      var nextUrl = next ? absolute(next.getAttribute('href'), absolute(target, location.origin)) : '';
+      if (query && next) {
+        var searchPage = String(next.getAttribute('onclick') || '').match(/list_submit\((\d+)\)/);
+        if (searchPage) {
+          var searchNext = new URL(target, location.origin); searchNext.searchParams.set('search_start', searchPage[1]);
+          nextUrl = searchNext.href;
+        }
       }
-      emit('catalog', { items: items });
-    } catch (e) { error(e.message); }
+      if (nextUrl && nextUrl.split('#')[0] === absolute(target, location.origin).split('#')[0]) nextUrl = '';
+      if (nextUrl && new URL(nextUrl).origin !== location.origin) nextUrl = '';
+      if (request === catalogRequest) emit('catalog', { items: items, append: !!data.pageUrl, nextPage: nextUrl, query: query, path: path });
+    } catch (e) { if (request === catalogRequest) error(e.message); }
   }
   function sliceBetween(value, start, endings) {
     var index = value.indexOf(start); if (index < 0) return '';
@@ -165,6 +180,8 @@
     var provider = absolute(iframe.getAttribute('src')) || 'встроенный iframe без src';
     emit('diagnostic', { message: 'Открыт ' + (text(trigger) || ('плеер ' + panelIndex)) + ': ' + provider });
     iframe.focus();
+    iframe.addEventListener('load', function () { iframe.contentWindow.postMessage({ exsCommand: 'autostart' }, '*'); }, { once: true });
+    iframe.contentWindow.postMessage({ exsCommand: 'autostart' }, '*');
     var startCancelled = false;
     var startAttempts = 0;
     cancelAutostart = function () { startCancelled = true; };
@@ -279,20 +296,43 @@
     activatePlayer(Number(data.player) || 0);
   }
   function login() {
+    if (authState()) return;
+    sessionStorage.setItem('exs-auth-mode', '1');
+    var registration = /do=(register|lostpassword)/.test(location.search);
+    var root = document.querySelector(registration ? '#dle-content' : '#PopUpLogin');
+    if (!root) { error('Форма входа не найдена. Обновите страницу.'); return; }
     document.documentElement.classList.add('exs-login');
     var style = document.getElementById('exs-login-style') || document.head.appendChild(document.createElement('style'));
     style.id = 'exs-login-style';
-    style.textContent = 'html.exs-login body{background:#07111f!important}.exs-login body>*{visibility:hidden!important}' +
-      '.exs-login [class*="modal"],.exs-login [class*="modal"] *,.exs-login #login-box,.exs-login #login-box *{visibility:visible!important}' +
-      '.exs-login [class*="modal"]{position:fixed!important;inset:0!important;z-index:2147483000!important;background:#07111f!important;color:white!important}';
-    var link = Array.from(document.querySelectorAll('a')).find(function (a) { return /авторизац|войти/i.test(text(a)); });
-    if (link) link.click(); else error('Кнопка входа на сайте не найдена.');
+    root.classList.add('exs-auth-root');
+    document.body.appendChild(root);
+    style.textContent = 'html.exs-login,html.exs-login body{margin:0!important;background:#07111f!important;height:auto!important;overflow:auto!important}' +
+      '.exs-login body>*:not(.exs-auth-root){display:none!important}' +
+      '.exs-login .exs-auth-root{display:block!important;visibility:visible!important;opacity:1!important;position:relative!important;inset:auto!important;top:auto!important;left:auto!important;transform:none!important;margin:0 auto!important;padding:78px 24px 24px!important;box-sizing:border-box!important;width:100%!important;max-width:650px!important;height:auto!important;background:#07111f!important;color:white!important;z-index:1!important}' +
+      '.exs-login .exs-auth-root *{visibility:visible!important}.exs-login .exs-auth-root input,.exs-login .exs-auth-root button{font-size:18px!important;min-height:44px!important}' +
+      '.exs-login .exs-auth-root :focus{outline:3px solid #35d4ff!important}.exs-login .close-reveal-modal{display:none!important}';
+    root.querySelectorAll('input:not([type="hidden"]),button,a,textarea,select').forEach(function (node) { node.tabIndex = 0; });
+    var first = root.querySelector('input:not([type="hidden"])');
+    if (first) first.focus();
+  }
+  function loginKey(action) {
+    var root = document.querySelector('.exs-auth-root'); if (!root) return;
+    var controls = Array.from(root.querySelectorAll('input:not([type="hidden"]),button:not(.close-reveal-modal),a,textarea,select')).filter(function (node) { return !node.disabled && node.getBoundingClientRect().height > 0; });
+    if (!controls.length) return;
+    var index = Math.max(0, controls.indexOf(document.activeElement));
+    if (action === 'next' || action === 'previous') controls[(index + (action === 'next' ? 1 : -1) + controls.length) % controls.length].focus();
+    else {
+      var current = controls[index]; current.focus();
+      if (/INPUT|TEXTAREA/.test(current.tagName)) emit('authInput'); else current.click();
+    }
   }
   function closeSurface() {
+    sessionStorage.removeItem('exs-auth-mode');
     if (cancelAutostart) { cancelAutostart(); cancelAutostart = null; }
     remoteControl = null;
     if (window.EXSClosePlayer) { window.EXSClosePlayer(); window.EXSClosePlayer = null; }
     document.documentElement.classList.remove('exs-login');
+    var loginStyle = document.getElementById('exs-login-style'); if (loginStyle) loginStyle.remove();
     document.querySelectorAll('.exs-player-active').forEach(function (p) { p.classList.remove('exs-player-active'); });
     document.querySelectorAll('iframe.exs-frame-active').forEach(function (frame) {
       try { var video = frame.contentDocument && frame.contentDocument.querySelector('video'); if (video) video.pause(); } catch (_) {}
@@ -334,7 +374,8 @@
       }
     } catch (_) {}
     if (!video) {
-      emit('diagnostic', { message: 'Пульт: API плеера недоступен (возможно, другой домен)' });
+      frame.contentWindow.postMessage({ exsCommand: action }, '*');
+      emit('diagnostic', { message: 'Команда ' + action + ' передана медиаплееру другого домена' });
       return false;
     }
     if (actual === 'play') {
@@ -380,9 +421,10 @@
     } catch (_) { originalAction(frame, action); }
   }
   function authState() {
-    var authLink = Array.from(document.querySelectorAll('a')).find(function (a) { return /авторизац/i.test(text(a)); });
-    var account = Array.from(document.querySelectorAll('a')).find(function (a) { return /профиль|выход|закладки/i.test(text(a)); });
-    emit('auth', { loggedIn: !!account && !authLink, displayName: account ? text(account) : '' });
+    var account = document.querySelector('a[href*="action=logout"],a[href*="/user/"]');
+    var loggedIn = typeof window.dle_group !== 'undefined' ? Number(window.dle_group) > 0 && Number(window.dle_group) !== 5 : !!document.querySelector('a[href*="action=logout"]');
+    emit('auth', { loggedIn: loggedIn, displayName: loggedIn ? text(document.querySelector('.loginbtn a')) || text(account) : '' });
+    return loggedIn;
   }
   function command(name, data) {
     if (name === 'catalog') return catalog(data || {});
@@ -390,6 +432,13 @@
     if (name === 'play') return play(data || {});
     if (name === 'resizePlayer') { if (window.EXSFitPlayer) window.EXSFitPlayer(); return; }
     if (name === 'login') return login();
+    if (name === 'loginKey') return loginKey(data.action);
+    if (name === 'pausePlayer') {
+      var frame = document.querySelector('iframe.exs-frame-active');
+      if (cancelAutostart) cancelAutostart();
+      if (frame) originalAction(frame, 'pause');
+      return;
+    }
     if (name === 'closePlayer' || name === 'closeLogin') return closeSurface();
   }
   window.EXSApp = { version: 2, command: command, playerKey: playerKey };
@@ -398,7 +447,8 @@
   if (pending && pending.url && Date.now() - pending.at < 60000 && location.href.split('#')[0] === pending.url.split('#')[0]) {
     sessionStorage.removeItem(PENDING); setTimeout(function () { activatePlayer(pending.player); }, 800);
   }
-  authState();
+  var loggedIn = authState();
+  if (sessionStorage.getItem('exs-auth-mode') && !loggedIn) login();
   setInterval(removeAdvertising, 1200);
   emit('ready');
 })();

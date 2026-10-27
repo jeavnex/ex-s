@@ -8,6 +8,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -63,6 +64,7 @@ fun ExsApp(
     onDiagnostics: () -> Unit,
     onClearLogs: () -> Unit,
     onShareLogs: () -> Unit,
+    onLoadMore: () -> Unit,
 ) {
     MaterialTheme {
         Box(
@@ -71,7 +73,7 @@ fun ExsApp(
             )
         ) {
             when (state.screen) {
-                AppScreen.CATALOG -> CatalogScreen(state, onSection, onOpen, onSearch, onLogin, onRefresh, onUpdate, onDiagnostics)
+                AppScreen.CATALOG -> CatalogScreen(state, onSection, onOpen, onSearch, onLogin, onRefresh, onUpdate, onDiagnostics, onLoadMore)
                 AppScreen.DETAIL -> DetailScreen(state, onPlay, onBack)
                 AppScreen.DIAGNOSTICS -> DiagnosticsScreen(state, onBack, onClearLogs, onShareLogs)
                 AppScreen.PLAYER, AppScreen.LOGIN -> Unit
@@ -92,11 +94,12 @@ private fun CatalogScreen(
     onRefresh: () -> Unit,
     onUpdate: () -> Unit,
     onDiagnostics: () -> Unit,
+    onLoadMore: () -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val compact = maxWidth < 700.dp || maxHeight < 500.dp
-        if (compact) PhoneCatalog(state, onSection, onOpen, onSearch, onLogin, onRefresh, onUpdate, onDiagnostics)
-        else TvCatalog(state, onSection, onOpen, onSearch, onLogin, onRefresh, onUpdate, onDiagnostics)
+        if (compact) PhoneCatalog(state, onSection, onOpen, onSearch, onLogin, onRefresh, onUpdate, onDiagnostics, onLoadMore)
+        else TvCatalog(state, onSection, onOpen, onSearch, onLogin, onRefresh, onUpdate, onDiagnostics, onLoadMore)
     }
 }
 
@@ -110,6 +113,7 @@ private fun PhoneCatalog(
     onRefresh: () -> Unit,
     onUpdate: () -> Unit,
     onDiagnostics: () -> Unit,
+    onLoadMore: () -> Unit,
 ) {
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.weight(1f).padding(start = 16.dp, top = 14.dp, end = 16.dp)) {
@@ -138,7 +142,7 @@ private fun PhoneCatalog(
                 Text("${state.cards.size}", color = Muted, fontSize = 13.sp)
             }
             Spacer(Modifier.height(12.dp))
-            CatalogGrid(state, onOpen, onRefresh, compact = true, modifier = Modifier.weight(1f))
+            CatalogGrid(state, onOpen, onRefresh, onLoadMore, compact = true, modifier = Modifier.weight(1f))
         }
         PhoneNavigation(state.section, onSection)
     }
@@ -154,6 +158,7 @@ private fun TvCatalog(
     onRefresh: () -> Unit,
     onUpdate: () -> Unit,
     onDiagnostics: () -> Unit,
+    onLoadMore: () -> Unit,
 ) {
     Row(Modifier.fillMaxSize().padding(start = 26.dp, top = 22.dp, end = 28.dp, bottom = 20.dp)) {
         TvNavigation(state, onSection, onLogin, onUpdate, onDiagnostics)
@@ -179,7 +184,7 @@ private fun TvCatalog(
                 Text("${state.cards.size} материалов", color = Muted, fontSize = 13.sp)
             }
             Spacer(Modifier.height(12.dp))
-            CatalogGrid(state, onOpen, onRefresh, compact = false, modifier = Modifier.weight(1f))
+            CatalogGrid(state, onOpen, onRefresh, onLoadMore, compact = false, modifier = Modifier.weight(1f))
         }
     }
 }
@@ -307,16 +312,18 @@ private fun SectionChip(label: String, selected: Boolean, onClick: () -> Unit) =
 )
 
 @Composable
-private fun CatalogGrid(state: ExsState, onOpen: (MediaCard) -> Unit, onRefresh: () -> Unit, compact: Boolean, modifier: Modifier = Modifier) {
+private fun CatalogGrid(state: ExsState, onOpen: (MediaCard) -> Unit, onRefresh: () -> Unit, onLoadMore: () -> Unit, compact: Boolean, modifier: Modifier = Modifier) {
     val gridState = rememberLazyGridState()
     val restoredCard = remember { FocusRequester() }
     val restoreUrl = state.detail?.card?.url
+    var restored by remember { mutableStateOf(false) }
     LaunchedEffect(state.cards, state.loading) {
         val index = state.cards.indexOfFirst { it.url == restoreUrl }
-        if (!compact && index >= 0 && !state.loading) {
+        if (!restored && !compact && index >= 0 && !state.loading) {
             gridState.scrollToItem(index)
             withFrameNanos { }
             runCatching { restoredCard.requestFocus() }
+            restored = true
         }
     }
     if (!state.loading && state.cards.isEmpty()) {
@@ -333,7 +340,11 @@ private fun CatalogGrid(state: ExsState, onOpen: (MediaCard) -> Unit, onRefresh:
             verticalArrangement = Arrangement.spacedBy(if (compact) 18.dp else 22.dp),
         ) { items(state.cards, key = { it.url }) { card ->
             MediaPoster(card, onOpen, if (card.url == restoreUrl) Modifier.focusRequester(restoredCard) else Modifier)
-        } }
+        }
+            if (state.nextPage.isNotBlank()) item(key = "load-more", span = { GridItemSpan(maxLineSpan) }) {
+                FocusPill(if (state.loadingMore) "Загружаем…" else "Показать ещё", false, onLoadMore)
+            }
+        }
     }
 }
 
@@ -342,6 +353,9 @@ private fun SearchBox(value: String, onSearch: (String) -> Unit, modifier: Modif
     var text by remember(value) { mutableStateOf(value) }
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
+    LaunchedEffect(text) {
+        if (text != value && (text.length >= 2 || text.isEmpty())) { delay(450); onSearch(text) }
+    }
     Row(
         modifier.fillMaxWidth().height(54.dp).clip(RoundedCornerShape(16.dp))
             .background(if (focused) Color(0xFF203A57) else Panel)
@@ -353,7 +367,7 @@ private fun SearchBox(value: String, onSearch: (String) -> Unit, modifier: Modif
         Spacer(Modifier.width(12.dp))
         BasicTextField(
             value = text,
-            onValueChange = { text = it; if (it.length >= 2 || it.isEmpty()) onSearch(it) },
+            onValueChange = { text = it },
             modifier = Modifier.weight(1f),
             interactionSource = interaction,
             textStyle = TextStyle(color = Color.White, fontSize = 18.sp),
@@ -500,6 +514,15 @@ private fun DiagnosticsScreen(state: ExsState, onBack: () -> Unit, onClear: () -
             FocusPill("Отправить", false, onShare, compact = true)
             FocusPill("Очистить", false, onClear, compact = true)
         }
+    }
+}
+
+@Composable
+fun LoginChrome(onBack: () -> Unit) {
+    Row(Modifier.fillMaxWidth().background(Ink).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+        PlayerControl("← Назад", onBack)
+        Spacer(Modifier.width(12.dp))
+        Text("Вход EX-FS · На TV: ↑/↓ — поле, OK — ввод, Назад — закрыть клавиатуру", color = Color.White, fontSize = 12.sp)
     }
 }
 

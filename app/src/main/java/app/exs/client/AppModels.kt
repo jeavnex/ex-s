@@ -83,6 +83,8 @@ data class ExsState(
     val screen: AppScreen = AppScreen.CATALOG,
     val section: CatalogSection = CatalogSection.HOME,
     val cards: List<MediaCard> = emptyList(),
+    val nextPage: String = "",
+    val loadingMore: Boolean = false,
     val detail: MediaDetail? = null,
     val loading: Boolean = true,
     val error: String? = null,

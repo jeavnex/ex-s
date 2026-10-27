@@ -1,8 +1,11 @@
 {
-  "versionCode": 8,
-  "versionName": "0.4.3",
+  "versionCode": 9,
+  "versionName": "0.4.4",
   "apkUrl": "https://github.com/jeavnex/ex-s/releases/latest/download/ex-s-universal.apk",
   "whatsNew": [
+    "Исправлена CORS-ошибка стандартного видеопостера Android WebView",
+    "Несовместимые постеры заменяются безопасным прозрачным изображением",
+    "Диагностика показывает canplay, playing и коды ошибок video",
     "Добавлена поддержка iframe без src, создаваемого actualize.js",
     "Первый плеер показывается после инициализации Playerjs",
     "Кнопки EX-S управляют доступным внутренним HTML5-видео",

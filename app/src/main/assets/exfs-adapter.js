@@ -7,6 +7,7 @@
   }
 
   var PENDING = 'exs-pending-v2';
+  var TRANSPARENT_POSTER = 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=';
   function emit(type, data) {
     try { window.EXSBridge.postMessage(JSON.stringify(Object.assign({ type: type }, data || {}))); } catch (_) {}
   }
@@ -154,13 +155,30 @@
     var provider = absolute(iframe.getAttribute('src')) || 'встроенный iframe без src';
     emit('diagnostic', { message: 'Открыт ' + (text(trigger) || ('плеер ' + panelIndex)) + ': ' + provider });
     iframe.focus();
-    setTimeout(function () {
+    function inspectInnerVideo() {
       try {
         var inner = iframe.contentDocument;
-        emit('diagnostic', { message: 'Внутри iframe: HTML=' + (inner && inner.documentElement ? inner.documentElement.innerHTML.length : 0) + ', video=' + (inner ? inner.querySelectorAll('video').length : 0) });
+        var videos = inner ? Array.from(inner.querySelectorAll('video')) : [];
+        videos.forEach(function (video) {
+          video.poster = TRANSPARENT_POSTER;
+          if (video.dataset.exsObserved) return;
+          video.dataset.exsObserved = '1';
+          ['loadedmetadata', 'canplay', 'playing', 'waiting', 'stalled', 'error'].forEach(function (eventName) {
+            video.addEventListener(eventName, function () {
+              var mediaError = video.error ? (' code=' + video.error.code + ' ' + (video.error.message || '')) : '';
+              emit('diagnostic', { message: 'video ' + eventName + ': ready=' + video.readyState + ', network=' + video.networkState + mediaError });
+            });
+          });
+        });
+        emit('diagnostic', { message: 'Внутри iframe: HTML=' + (inner && inner.documentElement ? inner.documentElement.innerHTML.length : 0) + ', video=' + videos.length });
       } catch (_) { emit('diagnostic', { message: 'Содержимое iframe защищено другим доменом' }); }
+    }
+    setTimeout(function () {
+      inspectInnerVideo();
       emit('playerReady', { provider: absolute(iframe.getAttribute('src')) || 'embedded-frame' });
     }, 500);
+    setTimeout(inspectInnerVideo, 1600);
+    setTimeout(inspectInnerVideo, 3500);
   }
   function play(data) {
     var url = absolute(data.url);

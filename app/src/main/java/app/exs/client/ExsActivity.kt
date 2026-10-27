@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
+import android.graphics.Bitmap
 import android.graphics.Color
 import android.net.Uri
 import android.net.http.SslError
@@ -42,6 +43,7 @@ class ExsActivity : ComponentActivity() {
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     private var adapterReady = false
     private var pendingCommand: Pair<String, JSONObject>? = null
+    private val recentLogs = mutableMapOf<String, Long>()
     private val isTelevision by lazy {
         val mode = (getSystemService(Context.UI_MODE_SERVICE) as UiModeManager).currentModeType
         mode == Configuration.UI_MODE_TYPE_TELEVISION || packageManager.hasSystemFeature("android.software.leanback")
@@ -125,6 +127,10 @@ class ExsActivity : ComponentActivity() {
                 request.isForMainFrame && !DomainPolicy.isAllowedTopLevel(request.url.toString())
 
             override fun shouldInterceptRequest(view: WebView, request: WebResourceRequest): WebResourceResponse? {
+                if (isProblemVideoPoster(request)) {
+                    runOnUiThread { addLog("Заменён несовместимый постер видео: ${safeUrl(request.url.toString())}") }
+                    return WebResourceResponse("image/gif", "binary", 200, "OK", mapOf("Access-Control-Allow-Origin" to "*", "Cache-Control" to "no-store"), java.io.ByteArrayInputStream(TRANSPARENT_GIF))
+                }
                 if (!DomainPolicy.isBlockedResource(request.url.toString())) return null
                 runOnUiThread { addLog("Заблокирован ресурс ${safeUrl(request.url.toString())}") }
                 return WebResourceResponse("text/plain", "UTF-8", 204, "No Content", emptyMap(), java.io.ByteArrayInputStream(ByteArray(0)))
@@ -152,8 +158,13 @@ class ExsActivity : ComponentActivity() {
         }
         web.webChromeClient = object : WebChromeClient() {
             override fun onCreateWindow(view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: android.os.Message?): Boolean = false
+            override fun getDefaultVideoPoster(): Bitmap = Bitmap.createBitmap(1, 1, Bitmap.Config.ARGB_8888)
             override fun onConsoleMessage(message: ConsoleMessage): Boolean {
-                addLog("JS ${message.messageLevel()}: ${message.message()}")
+                val value = message.message()
+                val noise = value.contains("font-size:0") || value.contains("deviceorientation") ||
+                    value.contains("Permissions policy violation") || value.contains("Unrecognized feature") ||
+                    value.contains("No available adapters") || value.contains("console.groupEnd") || value.contains("OTS parsing")
+                if (!noise) addLog("JS ${message.messageLevel()}: $value")
                 return true
             }
             override fun onShowCustomView(view: View, callback: CustomViewCallback) {
@@ -309,7 +320,16 @@ class ExsActivity : ComponentActivity() {
     private fun addLog(message: String) {
         val time = SimpleDateFormat("HH:mm:ss", Locale.US).format(Date())
         val safe = message.replace(Regex("https?://[^\\s\\\"'<>]+")) { safeUrl(it.value) }.take(700)
-        state = state.copy(logs = (state.logs + "[$time] $safe").takeLast(300))
+        val now = System.currentTimeMillis()
+        if (now - (recentLogs[safe] ?: 0L) < 2500L) return
+        recentLogs[safe] = now
+        state = state.copy(logs = (state.logs + "[$time] $safe").takeLast(500))
+    }
+    private fun isProblemVideoPoster(request: WebResourceRequest): Boolean {
+        val host = request.url.host.orEmpty().lowercase()
+        val path = request.url.path.orEmpty().lowercase()
+        return host.endsWith("uacdn.online") && (path.contains("@h") ||
+            (path.contains("/videos/") && request.requestHeaders["Accept"]?.contains("image") == true))
     }
     private fun safeUrl(value: String?): String {
         if (value.isNullOrBlank()) return "—"
@@ -325,5 +345,10 @@ class ExsActivity : ComponentActivity() {
     private fun JSONArray?.objects(): List<JSONObject> = if (this == null) emptyList() else (0 until length()).mapNotNull { optJSONObject(it) }
     private fun json(vararg fields: Pair<String, Any?>) = JSONObject().apply { fields.forEach { put(it.first, it.second) } }
 
-    companion object { private const val SITE = "https://ex-fs.net/"; private const val SITE_ORIGIN = "https://ex-fs.net"; private const val SITE_HOST = "ex-fs.net" }
+    companion object {
+        private const val SITE = "https://ex-fs.net/"
+        private const val SITE_ORIGIN = "https://ex-fs.net"
+        private const val SITE_HOST = "ex-fs.net"
+        private val TRANSPARENT_GIF = android.util.Base64.decode("R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=", android.util.Base64.DEFAULT)
+    }
 }

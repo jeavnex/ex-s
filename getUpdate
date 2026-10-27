@@ -1,8 +1,10 @@
 {
-  "versionCode": 5,
-  "versionName": "0.4.0",
+  "versionCode": 6,
+  "versionName": "0.4.1",
   "apkUrl": "https://github.com/jeavnex/ex-s/releases/latest/download/ex-s-universal.apk",
   "whatsNew": [
+    "Исправлено аварийное закрытие при открытии фильма",
+    "Возле входа отображаются номер и актуальность версии",
     "Убраны фрагменты JavaScript из карточки фильма",
     "Кнопки плееров перенесены в верхнюю часть карточки",
     "Добавлены годы, страны и все жанры из меню EX-FS",

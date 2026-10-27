@@ -107,7 +107,7 @@ private fun PhoneCatalog(
                 Brand(Modifier.weight(1f), compact = true)
                 CompactAction(if (state.loggedIn) "Аккаунт" else "Войти", onLogin)
                 Spacer(Modifier.width(7.dp))
-                CompactAction("↻", onUpdate)
+                VersionBadge(state, onUpdate)
             }
             Spacer(Modifier.height(14.dp))
             SearchBox(state.query, onSearch)
@@ -143,7 +143,7 @@ private fun TvCatalog(
     onUpdate: () -> Unit,
 ) {
     Row(Modifier.fillMaxSize().padding(start = 26.dp, top = 22.dp, end = 28.dp, bottom = 20.dp)) {
-        TvNavigation(state, onSection, onLogin)
+        TvNavigation(state, onSection, onLogin, onUpdate)
         Spacer(Modifier.width(26.dp))
         Column(Modifier.weight(1f).fillMaxHeight()) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -179,7 +179,7 @@ private fun Brand(modifier: Modifier = Modifier, compact: Boolean = false) {
 }
 
 @Composable
-private fun TvNavigation(state: ExsState, onSection: (CatalogSection) -> Unit, onLogin: () -> Unit) {
+private fun TvNavigation(state: ExsState, onSection: (CatalogSection) -> Unit, onLogin: () -> Unit, onUpdate: () -> Unit) {
     val first = remember { FocusRequester() }
     Column(Modifier.width(180.dp).fillMaxHeight()) {
         Brand(Modifier.padding(start = 10.dp, bottom = 24.dp))
@@ -204,6 +204,8 @@ private fun TvNavigation(state: ExsState, onSection: (CatalogSection) -> Unit, o
         Spacer(Modifier.weight(1f))
         Text(if (state.loggedIn) state.accountName.ifBlank { "ВХОД ВЫПОЛНЕН" } else "АККАУНТ EX-FS", color = Muted, fontSize = 9.sp, modifier = Modifier.padding(start = 10.dp, bottom = 5.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
         NavItem(if (state.loggedIn) "●" else "○", if (state.loggedIn) "Аккаунт" else "Войти", false, onLogin)
+        Spacer(Modifier.height(6.dp))
+        VersionBadge(state, onUpdate)
     }
     LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
 }
@@ -255,6 +257,29 @@ private fun CompactAction(label: String, onClick: () -> Unit) = Text(
     fontWeight = FontWeight.Bold,
     modifier = Modifier.clip(RoundedCornerShape(11.dp)).background(Panel).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp),
 )
+
+@Composable
+private fun VersionBadge(state: ExsState, onClick: () -> Unit) {
+    val status = when (state.updateStatus) {
+        UpdateStatus.CHECKING -> "проверка…"
+        UpdateStatus.CURRENT -> "актуальна"
+        UpdateStatus.OUTDATED -> "обновить до ${state.latestVersion}"
+        UpdateStatus.UNAVAILABLE -> "проверить"
+    }
+    val color = when (state.updateStatus) {
+        UpdateStatus.CURRENT -> Color(0xFF6EE7A8)
+        UpdateStatus.OUTDATED -> Color(0xFFFFC857)
+        else -> Muted
+    }
+    Column(
+        Modifier.clip(RoundedCornerShape(11.dp)).background(Panel).clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text("EX-S ${BuildConfig.VERSION_NAME}", color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+        Text(status, color = color, fontSize = 8.sp, maxLines = 1)
+    }
+}
 
 @Composable
 private fun SectionChip(label: String, selected: Boolean, onClick: () -> Unit) = Text(
@@ -357,9 +382,10 @@ private fun DetailScreen(state: ExsState, onPlay: (Int) -> Unit, onBack: () -> U
                     }
                 }
                 Spacer(Modifier.height(18.dp))
-                Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    PlayerButtons(detail, onPlay)
-                    if (detail.card.meta.isNotBlank()) InfoChip(detail.card.meta)
+                PlayerButtons(detail, onPlay)
+                if (detail.card.meta.isNotBlank()) {
+                    Spacer(Modifier.height(10.dp))
+                    InfoChip(detail.card.meta)
                 }
                 if (detail.facts.isNotBlank()) { Spacer(Modifier.height(12.dp)); Text(detail.facts, color = Muted, fontSize = 14.sp) }
                 Spacer(Modifier.height(16.dp))

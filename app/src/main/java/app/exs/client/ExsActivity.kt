@@ -60,9 +60,7 @@ class ExsActivity : ComponentActivity() {
                     if (surface) view.requestFocus()
                 })
                 if (state.screen == AppScreen.CATALOG || state.screen == AppScreen.DETAIL) {
-                    ExsApp(state, ::openSection, ::openDetail, ::search, ::play, ::handleBack, ::openLogin, ::refresh) {
-                        updateManager.check(showUpToDate = true)
-                    }
+                    ExsApp(state, ::openSection, ::openDetail, ::search, ::play, ::handleBack, ::openLogin, ::refresh) { checkUpdates(true) }
                 }
                 if (state.screen == AppScreen.PLAYER) {
                     PlayerChrome(state, ::handleBack, { playerAction("toggle", KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) },
@@ -71,7 +69,19 @@ class ExsActivity : ComponentActivity() {
             }
         }
         web.loadUrl(SITE)
-        updateManager.check(showUpToDate = false)
+        checkUpdates(false)
+    }
+
+    private fun checkUpdates(showUpToDate: Boolean) {
+        state = state.copy(updateStatus = UpdateStatus.CHECKING)
+        updateManager.check(showUpToDate) { release ->
+            state = when {
+                release == null -> state.copy(updateStatus = UpdateStatus.UNAVAILABLE)
+                UpdateManager.compareVersions(release.version, BuildConfig.VERSION_NAME) > 0 ->
+                    state.copy(updateStatus = UpdateStatus.OUTDATED, latestVersion = release.version)
+                else -> state.copy(updateStatus = UpdateStatus.CURRENT, latestVersion = release.version)
+            }
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")

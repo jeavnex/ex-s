@@ -51,10 +51,11 @@ class UpdateManager(private val activity: Activity) {
         executor.shutdownNow()
     }
 
-    fun check(showUpToDate: Boolean) {
+    fun check(showUpToDate: Boolean, onChecked: (ReleaseInfo?) -> Unit = {}) {
         executor.execute {
             val release = runCatching { fetchLatestRelease() }.getOrNull()
             activity.runOnUiThread {
+                onChecked(release)
                 when {
                     release == null && showUpToDate -> toast("Не удалось проверить обновления")
                     release == null -> Unit

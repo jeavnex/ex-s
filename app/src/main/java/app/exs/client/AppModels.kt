@@ -2,6 +2,8 @@ package app.exs.client
 
 enum class AppScreen { CATALOG, DETAIL, PLAYER, LOGIN }
 
+enum class UpdateStatus { CHECKING, CURRENT, OUTDATED, UNAVAILABLE }
+
 enum class CatalogSection(val label: String, val path: String, val primary: Boolean = false) {
     HOME("Главная", "/", true),
     MOVIES("Фильмы", "/film/", true),
@@ -88,4 +90,6 @@ data class ExsState(
     val loggedIn: Boolean = false,
     val accountName: String = "",
     val playerReady: Boolean = false,
+    val updateStatus: UpdateStatus = UpdateStatus.CHECKING,
+    val latestVersion: String = "",
 )

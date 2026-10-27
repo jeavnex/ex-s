@@ -22,6 +22,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -83,58 +85,203 @@ private fun CatalogScreen(
     onUpdate: () -> Unit,
 ) {
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val compact = maxWidth < 700.dp
-        Column(Modifier.fillMaxSize().padding(horizontal = if (compact) 16.dp else 32.dp, vertical = if (compact) 14.dp else 22.dp)) {
+        val compact = maxWidth < 700.dp || maxHeight < 500.dp
+        if (compact) PhoneCatalog(state, onSection, onOpen, onSearch, onLogin, onRefresh, onUpdate)
+        else TvCatalog(state, onSection, onOpen, onSearch, onLogin, onRefresh, onUpdate)
+    }
+}
+
+@Composable
+private fun PhoneCatalog(
+    state: ExsState,
+    onSection: (CatalogSection) -> Unit,
+    onOpen: (MediaCard) -> Unit,
+    onSearch: (String) -> Unit,
+    onLogin: () -> Unit,
+    onRefresh: () -> Unit,
+    onUpdate: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize()) {
+        Column(Modifier.weight(1f).padding(start = 16.dp, top = 14.dp, end = 16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text("EX-S", color = Color.White, fontSize = if (compact) 29.sp else 32.sp, fontWeight = FontWeight.Black)
-                    Text("КИНО БЕЗ ШУМА", color = Cyan, fontSize = 9.sp, letterSpacing = 2.sp)
-                }
-                FocusPill(if (state.loggedIn) "Аккаунт" else "Войти", false, onLogin, compact = compact)
+                Brand(Modifier.weight(1f), compact = true)
+                CompactAction(if (state.loggedIn) "Аккаунт" else "Войти", onLogin)
                 Spacer(Modifier.width(7.dp))
-                FocusPill("Обновить", false, onUpdate, compact = compact)
+                CompactAction("↻", onUpdate)
             }
             Spacer(Modifier.height(14.dp))
+            SearchBox(state.query, onSearch)
+            Spacer(Modifier.height(13.dp))
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                CatalogSection.entries.forEach { section -> FocusPill(section.label, state.section == section, onClick = { onSection(section) }) }
+                listOf(CatalogSection.HOME, CatalogSection.MOVIES, CatalogSection.SERIES, CatalogSection.CARTOONS, CatalogSection.SHOWS, CatalogSection.FAVORITES).forEach { section ->
+                    SectionChip(section.label, state.section == section) { onSection(section) }
+                }
             }
             Spacer(Modifier.height(16.dp))
-            SearchBox(state.query, onSearch)
-            Spacer(Modifier.height(18.dp))
-            if (compact) {
-                Text(state.section.label, color = Color.White, fontSize = 28.sp, fontWeight = FontWeight.Bold)
-                Text("${state.cards.size} материалов", color = Muted, fontSize = 13.sp)
-            } else {
-                Row(verticalAlignment = Alignment.Bottom) {
-                    Column(Modifier.weight(1f)) {
-                        Text(state.section.label, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
-                        Text(if (state.section == CatalogSection.FAVORITES) "Закладки вашего аккаунта EX-FS" else "Выберите карточку стрелками пульта и нажмите OK", color = Muted, fontSize = 14.sp)
-                    }
-                    Text("${state.cards.size} материалов", color = Muted, fontSize = 13.sp)
+            Row(verticalAlignment = Alignment.Bottom) {
+                Column(Modifier.weight(1f)) {
+                    Text(state.section.label, color = Color.White, fontSize = 27.sp, fontWeight = FontWeight.Bold)
+                    Text(if (state.section == CatalogSection.FAVORITES) "Закладки аккаунта EX-FS" else "Выберите фильм или сериал", color = Muted, fontSize = 13.sp)
                 }
+                Text("${state.cards.size}", color = Muted, fontSize = 13.sp)
             }
-            Spacer(Modifier.height(14.dp))
-            if (!state.loading && state.cards.isEmpty()) {
-                EmptyState(if (state.section == CatalogSection.FAVORITES) "Войдите в аккаунт или добавьте фильмы в закладки на EX-FS" else "В этом разделе пока ничего не найдено", onRefresh)
-            } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(if (compact) 132.dp else 150.dp),
-                    contentPadding = PaddingValues(bottom = 32.dp),
-                    horizontalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 18.dp),
-                    verticalArrangement = Arrangement.spacedBy(22.dp),
-                ) { items(state.cards, key = { it.url }) { MediaPoster(it, onOpen) } }
+            Spacer(Modifier.height(12.dp))
+            CatalogGrid(state, onOpen, onRefresh, compact = true, modifier = Modifier.weight(1f))
+        }
+        PhoneNavigation(state.section, onSection)
+    }
+}
+
+@Composable
+private fun TvCatalog(
+    state: ExsState,
+    onSection: (CatalogSection) -> Unit,
+    onOpen: (MediaCard) -> Unit,
+    onSearch: (String) -> Unit,
+    onLogin: () -> Unit,
+    onRefresh: () -> Unit,
+    onUpdate: () -> Unit,
+) {
+    Row(Modifier.fillMaxSize().padding(start = 26.dp, top = 22.dp, end = 28.dp, bottom = 20.dp)) {
+        TvNavigation(state, onSection, onLogin)
+        Spacer(Modifier.width(26.dp))
+        Column(Modifier.weight(1f).fillMaxHeight()) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                SearchBox(state.query, onSearch, Modifier.weight(1f))
+                FocusPill("↻ Обновить", false, onUpdate)
+            }
+            Spacer(Modifier.height(20.dp))
+            Row(verticalAlignment = Alignment.Bottom) {
+                Column(Modifier.weight(1f)) {
+                    Text(state.section.label, color = Color.White, fontSize = 30.sp, fontWeight = FontWeight.Bold)
+                    Text(if (state.section == CatalogSection.FAVORITES) "Закладки вашего аккаунта EX-FS" else "Стрелки — выбор, OK — открыть", color = Muted, fontSize = 14.sp)
+                }
+                Text("${state.cards.size} материалов", color = Muted, fontSize = 13.sp)
+            }
+            Spacer(Modifier.height(12.dp))
+            CatalogGrid(state, onOpen, onRefresh, compact = false, modifier = Modifier.weight(1f))
+        }
+    }
+}
+
+@Composable
+private fun Brand(modifier: Modifier = Modifier, compact: Boolean = false) {
+    Column(modifier) {
+        Text("EX-S", color = Color.White, fontSize = if (compact) 29.sp else 34.sp, fontWeight = FontWeight.Black)
+        Text("КИНО БЕЗ ШУМА", color = Cyan, fontSize = 9.sp, letterSpacing = 2.sp)
+    }
+}
+
+@Composable
+private fun TvNavigation(state: ExsState, onSection: (CatalogSection) -> Unit, onLogin: () -> Unit) {
+    val first = remember { FocusRequester() }
+    Column(Modifier.width(180.dp).fillMaxHeight()) {
+        Brand(Modifier.padding(start = 10.dp, bottom = 24.dp))
+        CatalogSection.entries.forEachIndexed { index, section ->
+            NavItem(
+                icon = when (section) {
+                    CatalogSection.HOME -> "⌂"
+                    CatalogSection.MOVIES -> "▶"
+                    CatalogSection.SERIES -> "▤"
+                    CatalogSection.CARTOONS -> "◇"
+                    CatalogSection.SHOWS -> "▣"
+                    CatalogSection.FAVORITES -> "♥"
+                },
+                label = section.label,
+                selected = state.section == section,
+                onClick = { onSection(section) },
+                modifier = if (index == 0) Modifier.focusRequester(first) else Modifier,
+            )
+            Spacer(Modifier.height(6.dp))
+        }
+        Spacer(Modifier.weight(1f))
+        Text(if (state.loggedIn) state.accountName.ifBlank { "ВХОД ВЫПОЛНЕН" } else "АККАУНТ EX-FS", color = Muted, fontSize = 9.sp, modifier = Modifier.padding(start = 10.dp, bottom = 5.dp), maxLines = 1, overflow = TextOverflow.Ellipsis)
+        NavItem(if (state.loggedIn) "●" else "○", if (state.loggedIn) "Аккаунт" else "Войти", false, onLogin)
+    }
+    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+}
+
+@Composable
+private fun PhoneNavigation(selected: CatalogSection, onSection: (CatalogSection) -> Unit) {
+    val destinations = listOf(
+        Triple(CatalogSection.HOME, "⌂", "Главная"),
+        Triple(CatalogSection.MOVIES, "▶", "Фильмы"),
+        Triple(CatalogSection.SERIES, "▤", "Сериалы"),
+        Triple(CatalogSection.CARTOONS, "◇", "Мультфильмы"),
+        Triple(CatalogSection.FAVORITES, "♥", "Избранное"),
+    )
+    Row(
+        Modifier.fillMaxWidth().background(Color(0xFF101D2D)).padding(horizontal = 6.dp, vertical = 7.dp),
+        horizontalArrangement = Arrangement.SpaceEvenly,
+    ) {
+        destinations.forEach { (section, icon, label) ->
+            val active = selected == section
+            Column(
+                Modifier.weight(1f).clip(RoundedCornerShape(12.dp)).clickable { onSection(section) }.padding(vertical = 5.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(icon, color = if (active) Cyan else Muted, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+                Text(label, color = if (active) Color.White else Muted, fontSize = 9.sp, maxLines = 1)
             }
         }
     }
 }
 
 @Composable
-private fun SearchBox(value: String, onSearch: (String) -> Unit) {
+private fun NavItem(icon: String, label: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        modifier.fillMaxWidth().height(46.dp).onFocusChanged { focused = it.isFocused }.focusable().clickable(onClick = onClick)
+            .background(if (selected || focused) Cyan else Color.Transparent, RoundedCornerShape(12.dp)).padding(horizontal = 12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(icon, color = if (selected || focused) Ink else Muted, fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.width(28.dp))
+        Text(label, color = if (selected || focused) Ink else Color.White, fontSize = 14.sp, fontWeight = FontWeight.SemiBold, maxLines = 1)
+    }
+}
+
+@Composable
+private fun CompactAction(label: String, onClick: () -> Unit) = Text(
+    label,
+    color = Color.White,
+    fontSize = 13.sp,
+    fontWeight = FontWeight.Bold,
+    modifier = Modifier.clip(RoundedCornerShape(11.dp)).background(Panel).clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 10.dp),
+)
+
+@Composable
+private fun SectionChip(label: String, selected: Boolean, onClick: () -> Unit) = Text(
+    label,
+    color = if (selected) Ink else Color.White,
+    fontSize = 12.sp,
+    fontWeight = FontWeight.SemiBold,
+    modifier = Modifier.clip(RoundedCornerShape(50)).background(if (selected) Cyan else Panel).clickable(onClick = onClick).padding(horizontal = 13.dp, vertical = 8.dp),
+)
+
+@Composable
+private fun CatalogGrid(state: ExsState, onOpen: (MediaCard) -> Unit, onRefresh: () -> Unit, compact: Boolean, modifier: Modifier = Modifier) {
+    if (!state.loading && state.cards.isEmpty()) {
+        Box(modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+            EmptyState(if (state.section == CatalogSection.FAVORITES) "Войдите в аккаунт или добавьте фильмы в закладки на EX-FS" else "В этом разделе пока ничего не найдено", onRefresh)
+        }
+    } else {
+        LazyVerticalGrid(
+            columns = GridCells.Adaptive(if (compact) 132.dp else 145.dp),
+            modifier = modifier,
+            contentPadding = PaddingValues(start = 4.dp, top = 4.dp, end = 4.dp, bottom = 28.dp),
+            horizontalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 18.dp),
+            verticalArrangement = Arrangement.spacedBy(if (compact) 18.dp else 22.dp),
+        ) { items(state.cards, key = { it.url }) { MediaPoster(it, onOpen) } }
+    }
+}
+
+@Composable
+private fun SearchBox(value: String, onSearch: (String) -> Unit, modifier: Modifier = Modifier) {
     var text by remember(value) { mutableStateOf(value) }
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     Row(
-        Modifier.fillMaxWidth().height(54.dp).clip(RoundedCornerShape(16.dp))
+        modifier.fillMaxWidth().height(54.dp).clip(RoundedCornerShape(16.dp))
             .background(if (focused) Color(0xFF203A57) else Panel)
             .border(if (focused) 2.dp else 1.dp, if (focused) Cyan else Color(0x334A6480), RoundedCornerShape(16.dp))
             .padding(horizontal = 18.dp),
@@ -159,7 +306,7 @@ private fun MediaPoster(item: MediaCard, onOpen: (MediaCard) -> Unit) {
     var focused by remember { mutableStateOf(false) }
     var imageFailed by remember(item.poster) { mutableStateOf(false) }
     Column(
-        Modifier.width(160.dp).onFocusChanged { focused = it.isFocused }.focusable()
+        Modifier.fillMaxWidth().onFocusChanged { focused = it.isFocused }.focusable()
             .clickable { onOpen(item) },
     ) {
         Box(
@@ -188,7 +335,7 @@ private fun MediaPoster(item: MediaCard, onOpen: (MediaCard) -> Unit) {
 private fun DetailScreen(state: ExsState, onPlay: (Int) -> Unit, onBack: () -> Unit) {
     val detail = state.detail ?: return
     BoxWithConstraints(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFF10243B), Ink)))) {
-        val compact = maxWidth < 700.dp
+        val compact = maxWidth < 700.dp || maxHeight < 500.dp
         if (compact) {
             Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(18.dp)) {
                 FocusPill("← Назад", false, onBack)

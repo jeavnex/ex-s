@@ -12,7 +12,9 @@ import android.net.Uri
 import android.net.http.SslError
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import android.view.KeyEvent
+import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.*
@@ -41,6 +43,7 @@ class ExsActivity : ComponentActivity() {
     private lateinit var updateManager: UpdateManager
     private var customView: View? = null
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+    private var fullscreenTapPending = false
     private var adapterReady = false
     private var pendingCommand: Pair<String, JSONObject>? = null
     private val recentLogs = mutableMapOf<String, Long>()
@@ -72,8 +75,7 @@ class ExsActivity : ComponentActivity() {
                         { checkUpdates(true) }, ::openDiagnostics, ::clearLogs, ::shareLogs)
                 }
                 if (state.screen == AppScreen.PLAYER) {
-                    PlayerChrome(state, ::handleBack, { playerAction("toggle", KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE) },
-                        { playerAction("left", KeyEvent.KEYCODE_DPAD_LEFT) }, { playerAction("right", KeyEvent.KEYCODE_DPAD_RIGHT) }, ::toggleOrientation)
+                    PlayerChrome(state, ::handleBack, ::toggleOrientation)
                 }
             }
         }
@@ -172,6 +174,8 @@ class ExsActivity : ComponentActivity() {
                 customView = view
                 customViewCallback = callback
                 (window.decorView as ViewGroup).addView(view, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+                if (!isTelevision) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
+                addLog("Оригинальный плеер: нативный fullscreen открыт; поворот датчиком разрешён")
                 applyImmersive()
             }
             override fun onHideCustomView() = hideCustomView()
@@ -201,7 +205,8 @@ class ExsActivity : ComponentActivity() {
     private fun play(index: Int) {
         val detail = state.detail ?: return
         addLog("Запуск плеера #$index: ${detail.card.title}")
-        if (!isTelevision) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        fullscreenTapPending = true
+        if (!isTelevision) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_FULL_SENSOR
         state = state.copy(screen = AppScreen.PLAYER, playerReady = false, loading = true, error = null)
         command("play", json("url" to detail.card.url, "player" to index))
     }
@@ -229,6 +234,7 @@ class ExsActivity : ComponentActivity() {
     private fun handleBack() {
         when (state.screen) {
             AppScreen.PLAYER -> {
+                fullscreenTapPending = false
                 if (customView != null) hideCustomView()
                 command("closePlayer")
                 if (!isTelevision) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -279,6 +285,26 @@ class ExsActivity : ComponentActivity() {
                 state = state.copy(detail = MediaDetail(card, event.optString("originalTitle"), event.optString("description"), event.optString("facts"), event.optString("rating"), players), loading = false, error = null)
             }
             "playerReady" -> { addLog("Плеер готов: ${safeUrl(event.optString("provider"))}"); state = state.copy(playerReady = true, loading = false, error = null) }
+            "fullscreenRequest" -> {
+                // Only tap the adapter's own fullscreen button, once per explicit Play action.
+                // WebView requires a trusted gesture before it will show its fullscreen surface.
+                if (state.screen == AppScreen.PLAYER && fullscreenTapPending && customView == null) {
+                    fullscreenTapPending = false
+                    web.postDelayed({
+                        if (state.screen == AppScreen.PLAYER && customView == null) {
+                            val x = 24f * resources.displayMetrics.density
+                            val y = 24f * resources.displayMetrics.density
+                            val time = SystemClock.uptimeMillis()
+                            val down = MotionEvent.obtain(time, time, MotionEvent.ACTION_DOWN, x, y, 0)
+                            val up = MotionEvent.obtain(time, time + 60, MotionEvent.ACTION_UP, x, y, 0)
+                            web.dispatchTouchEvent(down)
+                            web.dispatchTouchEvent(up)
+                            down.recycle(); up.recycle()
+                            addLog("Оригинальный плеер: запрошен нативный fullscreen")
+                        }
+                    }, 200)
+                }
+            }
             "diagnostic" -> addLog("Плеер: ${event.optString("message")}")
             "auth" -> state = state.copy(loggedIn = event.optBoolean("loggedIn"), accountName = event.optString("displayName"))
             "loginComplete" -> { state = state.copy(screen = AppScreen.CATALOG, loggedIn = true, loading = true); openSection(state.section) }
@@ -289,7 +315,14 @@ class ExsActivity : ComponentActivity() {
     override fun onPause() { if (::web.isInitialized) { web.onPause(); CookieManager.getInstance().flush() }; super.onPause() }
     override fun onResume() { super.onResume(); if (::web.isInitialized) web.onResume() }
     override fun onWindowFocusChanged(hasFocus: Boolean) { super.onWindowFocusChanged(hasFocus); if (hasFocus) applyImmersive() }
-    override fun onConfigurationChanged(newConfig: Configuration) { super.onConfigurationChanged(newConfig); applyImmersive() }
+    override fun onConfigurationChanged(newConfig: Configuration) {
+        super.onConfigurationChanged(newConfig)
+        applyImmersive()
+        if (state.screen == AppScreen.PLAYER) {
+            web.post { web.requestLayout(); command("resizePlayer") }
+            addLog("Поворот плеера: ${newConfig.orientation}; ${newConfig.screenWidthDp}x${newConfig.screenHeightDp}dp")
+        }
+    }
     override fun onDestroy() { if (customView != null) hideCustomView(); updateManager.unregister(); web.stopLoading(); web.destroy(); super.onDestroy() }
 
     private fun playerAction(action: String, keyCode: Int) {
@@ -311,6 +344,7 @@ class ExsActivity : ComponentActivity() {
         customView = null
         customViewCallback?.onCustomViewHidden()
         customViewCallback = null
+        addLog("Оригинальный плеер: нативный fullscreen закрыт")
         applyImmersive()
     }
 

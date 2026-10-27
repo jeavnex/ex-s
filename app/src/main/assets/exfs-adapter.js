@@ -149,7 +149,6 @@
     iframe.setAttribute('allowfullscreen', '');
     iframe.setAttribute('data-exs-parent', panel.id || '');
     iframe.classList.add('exs-frame-active');
-    iframe.classList.add('act-fullscreen');
     var ancestor = iframe.parentElement;
     while (ancestor && ancestor !== document.body) {
       ancestor.classList.add('exs-frame-ancestor');
@@ -161,11 +160,70 @@
     var provider = absolute(iframe.getAttribute('src')) || 'встроенный iframe без src';
     emit('diagnostic', { message: 'Открыт ' + (text(trigger) || ('плеер ' + panelIndex)) + ': ' + provider });
     iframe.focus();
-    try { iframe.contentWindow.postMessage({ event: 'fullScreen', enter: true }, '*'); } catch (_) {}
+    // The iframe must stay in its original DOM position: moving a src-less
+    // actualize iframe destroys its dynamically written player document.
+    function fitOriginalPlayer() {
+      try {
+        var inner = iframe.contentDocument;
+        if (!inner || !inner.body) return;
+        var fitStyle = inner.getElementById('exs-original-fit');
+        if (!fitStyle) {
+          fitStyle = inner.createElement('style'); fitStyle.id = 'exs-original-fit';
+          inner.head.appendChild(fitStyle);
+        }
+        fitStyle.textContent = 'html,body{margin:0!important;width:100%!important;height:100%!important;overflow:hidden!important;background:#000!important}' +
+          '.exs-video-parent{box-sizing:border-box!important;width:100%!important;height:100%!important;min-height:0!important;max-height:100%!important;max-width:100%!important;aspect-ratio:auto!important;padding-top:0!important;padding-bottom:0!important}' +
+          'video{object-fit:contain!important;max-width:100%!important;max-height:100%!important}';
+        inner.querySelectorAll('video').forEach(function (video) {
+          var parent = video.parentElement;
+          while (parent && parent !== inner.body) {
+            parent.classList.add('exs-video-parent'); parent = parent.parentElement;
+          }
+        });
+        iframe.contentWindow.dispatchEvent(new Event('resize'));
+      } catch (_) {} // Cross-origin players keep their own layout and controls.
+    }
+    window.EXSFitPlayer = fitOriginalPlayer;
+    var fullscreenButton = document.getElementById('exs-enter-fullscreen') || document.createElement('button');
+    fullscreenButton.id = 'exs-enter-fullscreen';
+    fullscreenButton.textContent = '⛶';
+    fullscreenButton.setAttribute('aria-label', 'Открыть оригинальный плеер на весь экран');
+    fullscreenButton.style.cssText = 'position:fixed;left:0;top:0;width:48px;height:48px;z-index:2147483647;background:#152638;color:white;border:0;font-size:24px';
+    fullscreenButton.onclick = function () {
+      var request = iframe.requestFullscreen || iframe.webkitRequestFullscreen;
+      if (!request) { emit('diagnostic', { message: 'Fullscreen API недоступен; оставлена кнопка оригинального плеера' }); return; }
+      try {
+        var result = request.call(iframe);
+        if (result && result.catch) result.catch(function (e) {
+          emit('diagnostic', { message: 'Fullscreen отклонён: ' + e.message });
+          fullscreenButton.hidden = false;
+        });
+      } catch (e) { emit('diagnostic', { message: 'Fullscreen: ' + e.message }); }
+    };
+    document.body.appendChild(fullscreenButton);
+    function fullscreenChanged() {
+      var entered = !!(document.fullscreenElement || document.webkitFullscreenElement);
+      fullscreenButton.hidden = entered;
+      fitOriginalPlayer();
+      // Use the player's external fullscreen protocol too, so its controls,
+      // quality/voice selectors and timeline know they are on a full surface.
+      try { iframe.contentWindow.postMessage({ event: 'fullScreen', enter: entered }, '*'); } catch (_) {}
+      emit('diagnostic', { message: 'Оригинальный fullscreen=' + entered + '; viewport=' + innerWidth + 'x' + innerHeight });
+    }
+    document.addEventListener('fullscreenchange', fullscreenChanged);
+    document.addEventListener('webkitfullscreenchange', fullscreenChanged);
+    window.addEventListener('resize', fitOriginalPlayer);
+    window.EXSClosePlayer = function () {
+      document.removeEventListener('fullscreenchange', fullscreenChanged);
+      document.removeEventListener('webkitfullscreenchange', fullscreenChanged);
+      window.removeEventListener('resize', fitOriginalPlayer);
+      fullscreenButton.remove(); window.EXSFitPlayer = null;
+    };
     function inspectInnerVideo() {
       try {
         var inner = iframe.contentDocument;
         var videos = inner ? Array.from(inner.querySelectorAll('video')) : [];
+        fitOriginalPlayer();
         videos.forEach(function (video) {
           video.poster = TRANSPARENT_POSTER;
           if (video.dataset.exsObserved) return;
@@ -183,6 +241,7 @@
     setTimeout(function () {
       inspectInnerVideo();
       emit('playerReady', { provider: absolute(iframe.getAttribute('src')) || 'embedded-frame' });
+      emit('fullscreenRequest');
     }, 500);
     setTimeout(inspectInnerVideo, 1600);
     setTimeout(inspectInnerVideo, 3500);
@@ -206,6 +265,7 @@
     if (link) link.click(); else error('Кнопка входа на сайте не найдена.');
   }
   function closeSurface() {
+    if (window.EXSClosePlayer) { window.EXSClosePlayer(); window.EXSClosePlayer = null; }
     document.documentElement.classList.remove('exs-login');
     document.querySelectorAll('.exs-player-active').forEach(function (p) { p.classList.remove('exs-player-active'); });
     document.querySelectorAll('iframe.exs-frame-active').forEach(function (frame) {
@@ -238,6 +298,7 @@
     if (name === 'catalog') return catalog(data || {});
     if (name === 'detail') return detail(data || {});
     if (name === 'play') return play(data || {});
+    if (name === 'resizePlayer') { if (window.EXSFitPlayer) window.EXSFitPlayer(); return; }
     if (name === 'login') return login();
     if (name === 'closePlayer' || name === 'closeLogin') return closeSurface();
   }

@@ -30,7 +30,10 @@ jobs:
           EXS_STORE_PASSWORD: ${{ secrets.EXS_STORE_PASSWORD }}
           EXS_KEY_ALIAS: ${{ secrets.EXS_KEY_ALIAS }}
           EXS_KEY_PASSWORD: ${{ secrets.EXS_KEY_PASSWORD }}
-        run: ./gradlew --no-daemon testReleaseUnitTest lintRelease assembleRelease
+        run: |
+          node --check app/src/main/assets/exfs-adapter.js
+          node tools/test-player.cjs
+          ./gradlew --no-daemon testReleaseUnitTest lintRelease assembleRelease
       - name: Подготовить файлы релиза
         run: |
           mkdir out

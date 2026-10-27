@@ -484,9 +484,6 @@ private fun DiagnosticsScreen(state: ExsState, onBack: () -> Unit, onClear: () -
 fun PlayerChrome(
     state: ExsState,
     onBack: () -> Unit,
-    onToggle: () -> Unit,
-    onSeekBack: () -> Unit,
-    onSeekForward: () -> Unit,
     onRotate: () -> Unit,
 ) {
     var chromeVisible by remember(state.detail?.card?.url) { mutableStateOf(true) }
@@ -518,16 +515,6 @@ fun PlayerChrome(
             }
         } else {
             Box(Modifier.align(Alignment.TopEnd).padding(8.dp)) { PlayerControl("Меню", { chromeVisible = true }) }
-        }
-        if (state.playerReady && chromeVisible) {
-            Row(
-                Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp).background(Color(0xD9101D2D), RoundedCornerShape(16.dp)).padding(8.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                PlayerControl("−10", onSeekBack)
-                PlayerControl("▶ / ❚❚", onToggle, accent = true)
-                PlayerControl("+10", onSeekForward)
-            }
         }
     }
 }

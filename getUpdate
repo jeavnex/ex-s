@@ -1,8 +1,11 @@
 {
-  "versionCode": 9,
-  "versionName": "0.4.4",
+  "versionCode": 10,
+  "versionName": "0.4.5",
   "apkUrl": "https://github.com/jeavnex/ex-s/releases/latest/download/ex-s-universal.apk",
   "whatsNew": [
+    "Исправлен сброс содержимого iframe при его переносе в DOM",
+    "Плеер остаётся в исходном месте и визуально разворачивается на весь экран",
+    "Сохранён внутренний video для паузы и перемотки",
     "Исправлена CORS-ошибка стандартного видеопостера Android WebView",
     "Несовместимые постеры заменяются безопасным прозрачным изображением",
     "Диагностика показывает canplay, playing и коды ошибок video",

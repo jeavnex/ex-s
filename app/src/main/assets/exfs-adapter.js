@@ -137,7 +137,8 @@
     var style = document.getElementById('exs-player-style') || document.head.appendChild(document.createElement('style'));
     style.id = 'exs-player-style';
     style.textContent = 'html,body{margin:0!important;background:#000!important;overflow:hidden!important;width:100%!important;height:100%!important}' +
-      'body>*{visibility:hidden!important}iframe.exs-frame-active{visibility:visible!important}' +
+      'html,body{background:#000!important}' +
+      '.exs-frame-ancestor{transform:none!important;perspective:none!important;filter:none!important;contain:none!important;overflow:visible!important}' +
       'iframe.exs-frame-active{display:block!important;position:fixed!important;left:0!important;top:0!important;right:0!important;bottom:0!important;border:0!important;margin:0!important;padding:0!important;width:100vw!important;height:100vh!important;max-width:none!important;max-height:none!important;transform:none!important;z-index:2147483000!important;background:#000!important}' +
       '[class*="popup"],[class*="popunder"],[id*="popup"],[id*="advert"]{display:none!important}';
     var iframe = panel.querySelector('iframe');
@@ -148,7 +149,11 @@
     iframe.setAttribute('allowfullscreen', '');
     iframe.setAttribute('data-exs-parent', panel.id || '');
     iframe.classList.add('exs-frame-active');
-    document.body.appendChild(iframe);
+    var ancestor = iframe.parentElement;
+    while (ancestor && ancestor !== document.body) {
+      ancestor.classList.add('exs-frame-ancestor');
+      ancestor = ancestor.parentElement;
+    }
     iframe.addEventListener('load', function () {
       emit('diagnostic', { message: 'iframe загружен: ' + absolute(iframe.getAttribute('src')) });
     }, { once: true });
@@ -204,9 +209,8 @@
     document.querySelectorAll('iframe.exs-frame-active').forEach(function (frame) {
       try { var video = frame.contentDocument && frame.contentDocument.querySelector('video'); if (video) video.pause(); } catch (_) {}
       frame.classList.remove('exs-frame-active');
-      var parent = frame.getAttribute('data-exs-parent') && document.getElementById(frame.getAttribute('data-exs-parent'));
-      if (parent) parent.appendChild(frame);
     });
+    document.querySelectorAll('.exs-frame-ancestor').forEach(function (node) { node.classList.remove('exs-frame-ancestor'); });
     var video = document.querySelector('video'); if (video) video.pause();
   }
   function playerKey(action) {
